@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Khidmaty",
+    "slug": "khidmaty",
+    "version": "0.1.0",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "backgroundColor": "#F6F7FB",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "web": {
+      "backgroundColor": "#F6F7FB",
+      "themeColor": "#D97800"
+    },
+    "android": {
+      "package": "com.fadhnousssorganization.khidmaty"
+    },
+    "ios": {
+      "bundleIdentifier": "com.fadhnousssorganization.khidmaty"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "b6bb979a-2bab-4bf1-8a0f-7d9808060d84"
+      }
+    },
+    "owner": "fadhnousss-organization"
+  }
+}

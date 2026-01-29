@@ -1,0 +1,31 @@
+{
+  "cli": {
+    "version": ">= 7.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://www.khidmaty.ly",
+        "EXPO_PUBLIC_N8N_BASE_URL": "https://lab.cloudaiacademy.ca",
+        "EXPO_PUBLIC_USE_N8N_CHAT": "1",
+        "EXPO_PUBLIC_N8N_CHAT_WEBHOOK_PATH": "/webhook/khidmaty-chat",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyDr43GAZFdLh674vZOzlXR_OawyFP0arRY",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "khidmaty-connect-2d512.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "khidmaty-connect-2d512",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "khidmaty-connect-2d512.appspot.com",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "587434148277",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:587434148277:web:1a1aeec6f34435023fd9fc"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  }
+}
