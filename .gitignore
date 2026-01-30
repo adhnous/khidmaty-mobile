@@ -1,2 +1,11 @@
 .vercel
+node_modules/
+.expo/
+dist/
+
+# Keep local env files out of git (use Vercel env vars in production)
+.env
+.env.*
+!.env.example
+
 .env*.local
