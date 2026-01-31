@@ -213,7 +213,11 @@ function normalizePlusMinus(raw: string): string {
 }
 
 function normalizeBloodType(raw: string): string | undefined {
-  const s = normalizePlusMinus(raw).trim().toUpperCase().replace(/\s+/g, "");
+  // Some keyboards add invisible direction markers (LRM/RLM/ALM) around Latin text.
+  // Strip them so inputs like "B+\u200F" are still recognized.
+  const s = normalizePlusMinus(raw)
+    .toUpperCase()
+    .replace(/[\s\u200B-\u200F\u202A-\u202E\u2066-\u2069\u061C\uFEFF]/g, "");
   if (!s) return undefined;
   const m = s.match(/^(A|B|AB|O)([+-])$/);
   if (!m) return undefined;
