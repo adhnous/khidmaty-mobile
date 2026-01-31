@@ -396,10 +396,15 @@ async function buildBloodDonorsResponse(
   }
 
   const total = resultsAll.length;
-  if (total <= 0) return null;
-
   const start = (page - 1) * limit;
-  const results = resultsAll.slice(start, start + limit);
+  const results = total > 0 ? resultsAll.slice(start, start + limit) : [];
+
+  const assistantText =
+    total > 0
+      ? `تم العثور على ${total} متبرع بالدم.`
+      : bloodType
+        ? `لا يوجد متبرعون حالياً لفصيلة ${bloodType}. جرّب فصيلة أخرى أو غيّر المدينة.`
+        : "لا يوجد متبرعون مطابقون للبحث. جرّب فصيلة دم مثل O+ أو AB-.";
 
   return {
     query: q,
@@ -407,7 +412,7 @@ async function buildBloodDonorsResponse(
     limit,
     total,
     results,
-    assistantText: `تم العثور على ${total} متبرع بالدم.`,
+    assistantText,
     suggestions: BLOOD_TYPES.slice(0, 8) as unknown as string[],
   };
 }
