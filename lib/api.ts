@@ -204,8 +204,16 @@ type BloodDonorItem = {
 
 const BLOOD_TYPES = ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"] as const;
 
+function normalizePlusMinus(raw: string): string {
+  // Users may type plus/minus from different keyboards (full-width, math minus, etc).
+  // Normalize to ASCII so the blood-type regexes work reliably.
+  return String(raw || "")
+    .replace(/[＋﹢∔]/g, "+")
+    .replace(/[−–—﹣]/g, "-");
+}
+
 function normalizeBloodType(raw: string): string | undefined {
-  const s = String(raw || "").trim().toUpperCase().replace(/\s+/g, "");
+  const s = normalizePlusMinus(raw).trim().toUpperCase().replace(/\s+/g, "");
   if (!s) return undefined;
   const m = s.match(/^(A|B|AB|O)([+-])$/);
   if (!m) return undefined;
@@ -217,7 +225,7 @@ function parseBloodTypeFromText(text: string): string | undefined {
   const whole = normalizeBloodType(text);
   if (whole) return whole;
 
-  const s = String(text || "").toUpperCase();
+  const s = normalizePlusMinus(text).toUpperCase();
 
   // Match standalone tokens like "A+", "AB-", "O+" even when followed by end-of-string.
   // Avoid \b after +/-, because + and - are non-word characters and "\b" won't match at EOL.
