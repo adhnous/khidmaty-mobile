@@ -7,7 +7,24 @@ let warnedApiLocalhostOnDevice = false;
 let warnedN8nLocalhostOnDevice = false;
 
 function normalizeBaseUrl(url: string): string {
-  return String(url || "").trim().replace(/\/+$/, "");
+  let v = String(url || "").trim();
+  // Vercel CLI can write .env values wrapped in quotes; strip them to avoid subtle bugs.
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1).trim();
+  }
+  v = v.replace(/\/+$/, "");
+
+  // Avoid CORS failures caused by redirecting from the apex domain to "www".
+  // Browsers treat cross-origin redirects as CORS-sensitive.
+  try {
+    const u = new URL(v);
+    if (u.hostname === "khidmaty.ly") u.hostname = "www.khidmaty.ly";
+    v = u.toString().replace(/\/+$/, "");
+  } catch {
+    // ignore parse errors; keep the original string
+  }
+
+  return v;
 }
 
 function getHostFromHostUri(hostUri: string): string | null {
