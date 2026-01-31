@@ -213,10 +213,17 @@ function normalizeBloodType(raw: string): string | undefined {
 }
 
 function parseBloodTypeFromText(text: string): string | undefined {
+  // Fast path: the whole input is a blood type (e.g. "B+")
+  const whole = normalizeBloodType(text);
+  if (whole) return whole;
+
   const s = String(text || "").toUpperCase();
-  const m = s.match(/\b(AB|A|B|O)\s*([+-])\b/);
+
+  // Match standalone tokens like "A+", "AB-", "O+" even when followed by end-of-string.
+  // Avoid \b after +/-, because + and - are non-word characters and "\b" won't match at EOL.
+  const m = s.match(/(^|[^A-Z])(AB|A|B|O)\s*([+-])($|[^A-Z])/);
   if (!m) return undefined;
-  return normalizeBloodType(`${m[1]}${m[2]}`);
+  return normalizeBloodType(`${m[2]}${m[3]}`);
 }
 
 function looksLikeBloodDonorQuery(input: Parameters<typeof searchApi>[0]): boolean {
@@ -409,6 +416,14 @@ async function applyStaticTripoliFallback(
   input: Parameters<typeof searchApi>[0],
   res: ChatSearchResponse,
 ): Promise<ChatSearchResponse> {
+  // If the user typed only a blood type like "B+", show blood donors (more relevant than generic search matches).
+  const q = String(input.q || "").trim();
+  const bloodTypeOnly = !!normalizeBloodType(q);
+  if (bloodTypeOnly) {
+    const donors = await buildBloodDonorsResponse(input);
+    if (donors) return donors;
+  }
+
   const hasAny = (Array.isArray(res.results) && res.results.length > 0) || (res.total ?? 0) > 0;
   if (hasAny) return res;
 
