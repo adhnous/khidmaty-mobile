@@ -207,7 +207,14 @@ const BLOOD_TYPES = ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"] as const;
 function normalizePlusMinus(raw: string): string {
   // Users may type plus/minus from different keyboards (full-width, math minus, etc).
   // Normalize to ASCII so the blood-type regexes work reliably.
-  return String(raw || "")
+  let s = String(raw || "");
+  // NFKC converts some compatibility characters (including some full-width forms) to ASCII.
+  try {
+    s = s.normalize("NFKC");
+  } catch {
+    // ignore
+  }
+  return s
     .replace(/[＋﹢∔]/g, "+")
     .replace(/[−–—﹣]/g, "-");
 }
@@ -217,7 +224,13 @@ function normalizeBloodType(raw: string): string | undefined {
   // Strip them so inputs like "B+\u200F" are still recognized.
   const s = normalizePlusMinus(raw)
     .toUpperCase()
-    .replace(/[\s\u200B-\u200F\u202A-\u202E\u2066-\u2069\u061C\uFEFF]/g, "");
+    // Fix common confusables: Cyrillic/Greek letters that look like Latin A/B/O.
+    .replace(/[АΑ]/g, "A") // Cyrillic A, Greek Alpha
+    .replace(/[ВΒ]/g, "B") // Cyrillic Ve, Greek Beta
+    .replace(/[ОΟ]/g, "O") // Cyrillic O, Greek Omicron
+    .replace(/0/g, "O") // zero -> O (common user mistake)
+    // Strip whitespace + common invisible marks (directional marks, word joiner, BOM, variation selectors).
+    .replace(/[\s\u00AD\u061C\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFE0E\uFE0F\uFEFF]/g, "");
   if (!s) return undefined;
   const m = s.match(/^(A|B|AB|O)([+-])$/);
   if (!m) return undefined;
