@@ -1,0 +1,185 @@
+{
+  "name": "Khidmaty SOS Webhook -> Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "khidmaty-sos",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook_1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Normalize input for SOS -> Telegram\n// Expected input from the app:\n// {\n//   message: string,\n//   city?: string,\n//   lat?: number,\n//   lon?: number,\n//   deviceId?: string,\n//   source?: string,\n//   createdAt?: string\n// }\n+\n+const body = items[0]?.json?.body ?? items[0]?.json ?? {};\n+\n+const message = String(body.message || \"\").trim();\n+if (!message) {\n+  return [{ json: { ok: false, status: 400, error: \"Missing message\" } }];\n+}\n+\n+const city = String(body.city || \"\").trim();\n+\n+const lat = Number(body.lat);\n+const lon = Number(body.lon);\n+const hasCoords = Number.isFinite(lat) && Number.isFinite(lon);\n+\n+const deviceId = String(body.deviceId || \"\").trim();\n+const source = String(body.source || \"\").trim();\n+const createdAt = String(body.createdAt || new Date().toISOString()).trim();\n+\n+const lines = [];\n+lines.push(\"[KHIDMATY SOS]\");\n+lines.push(message);\n+\n+if (city) lines.push(`City: ${city}`);\n+if (hasCoords) {\n+  lines.push(`Location: ${lat}, ${lon}`);\n+  lines.push(`Google Maps: https://www.google.com/maps?q=${lat},${lon}`);\n+}\n+if (deviceId) lines.push(`Device: ${deviceId}`);\n+if (source) lines.push(`Source: ${source}`);\n+lines.push(`Time: ${createdAt}`);\n+\n+return [{ json: { ok: true, text: lines.join(\"\\n\") } }];"
+      },
+      "id": "normalize_1",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.ok}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if_ok_1",
+      "name": "Is Input OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        740,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{$json.text}}",
+        "additionalFields": {}
+      },
+      "id": "tg_1",
+      "name": "Telegram Send",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        980,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { ok: true } }];"
+      },
+      "id": "ok_1",
+      "name": "Build OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "responseBody": "={{$json}}",
+        "responseCode": "={{$json.status || 200}}",
+        "options": {}
+      },
+      "id": "respond_error_1",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        980,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "responseBody": "={{$json}}",
+        "responseCode": 200,
+        "options": {}
+      },
+      "id": "respond_ok_1",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1420,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Is Input OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Input OK?": {
+      "main": [
+        [
+          {
+            "node": "Telegram Send",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Send": {
+      "main": [
+        [
+          {
+            "node": "Build OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build OK": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "1"
+}
+

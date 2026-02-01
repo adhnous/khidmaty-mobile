@@ -58,3 +58,16 @@ From the repo root (one folder above `khidmaty-mobile/`):
 
 Make sure your phone can reach it:
 - `http://<YOUR_LAN_IP>:3000/api/search?q=test`
+
+## SOS (Telegram via n8n)
+
+The **SOS** screen posts an alert to an n8n webhook, which then forwards it to a Telegram group/channel.
+
+Env vars (see `.env.example`):
+- `EXPO_PUBLIC_N8N_BASE_URL` (example: `https://lab.cloudaiacademy.ca`)
+- `EXPO_PUBLIC_N8N_SOS_WEBHOOK_PATH` (default: `/webhook/khidmaty-sos`)
+
+n8n workflow:
+- Import `docs/n8n-sos-workflow.json`
+- Set the Telegram credentials and `chatId`
+- Activate the workflow
