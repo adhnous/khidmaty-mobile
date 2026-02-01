@@ -593,3 +593,38 @@ export async function createLead(input: CreateLeadInput): Promise<CreateLeadResu
   const leadId = cleanString(json?.leadId) || cleanString(json?.id) || undefined;
   return { leadId };
 }
+
+export type SosAlertInput = {
+  message: string;
+  city?: string;
+  lat?: number;
+  lon?: number;
+  deviceId?: string;
+  source?: string;
+};
+
+export type SosAlertResult = { ok: boolean; id?: string };
+
+export async function sendSosAlert(input: SosAlertInput): Promise<SosAlertResult> {
+  const message = String(input.message || "").trim();
+  if (!message) throw new Error("missing_message");
+
+  const n8nBase = getN8nBaseUrl();
+  const webhookPath = envString(process.env.EXPO_PUBLIC_N8N_SOS_WEBHOOK_PATH) || "/webhook/khidmaty-sos";
+  const url = joinUrl(n8nBase, webhookPath);
+
+  const payload = {
+    message,
+    city: cleanString(input.city) || "",
+    lat: Number.isFinite(Number(input.lat)) ? Number(input.lat) : undefined,
+    lon: Number.isFinite(Number(input.lon)) ? Number(input.lon) : undefined,
+    deviceId: cleanString(input.deviceId) || undefined,
+    source: cleanString(input.source) || "khidmaty-mobile",
+    createdAt: new Date().toISOString(),
+  };
+
+  const json = await fetchJson<any>(url, { method: "POST", body: payload, timeoutMs: 20000 });
+  const ok = typeof json?.ok === "boolean" ? json.ok : true;
+  const id = cleanString(json?.id) || cleanString(json?.requestId) || undefined;
+  return { ok, id };
+}

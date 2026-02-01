@@ -4,6 +4,8 @@ const KEYS = {
   deviceId: "khidmaty:deviceId:v1",
   recentQueries: "khidmaty:recentQueries:v1",
   favorites: "khidmaty:favorites:v1",
+  sosContacts: "khidmaty:sos:contacts:v1",
+  sosLastSentAt: "khidmaty:sos:lastSentAt:v1",
 } as const;
 
 function safeJsonParse<T>(raw: string | null): T | null {
@@ -92,5 +94,49 @@ export async function toggleFavorite(key: string): Promise<boolean> {
   else set.delete(v);
   await AsyncStorage.setItem(KEYS.favorites, JSON.stringify(Array.from(set)));
   return nextVal;
+}
+
+export type SosContact = {
+  id: string;
+  name: string;
+  phone: string;
+};
+
+export async function getSosContacts(): Promise<SosContact[]> {
+  const raw = await AsyncStorage.getItem(KEYS.sosContacts).catch(() => null);
+  const parsed = safeJsonParse<SosContact[]>(raw);
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((c) => ({
+      id: String((c as any)?.id || "").trim(),
+      name: String((c as any)?.name || "").trim(),
+      phone: String((c as any)?.phone || "").trim(),
+    }))
+    .filter((c) => c.id && c.name && c.phone)
+    .slice(0, 10);
+}
+
+export async function saveSosContacts(next: SosContact[]): Promise<void> {
+  const clean = (Array.isArray(next) ? next : [])
+    .map((c) => ({
+      id: String((c as any)?.id || "").trim(),
+      name: String((c as any)?.name || "").trim(),
+      phone: String((c as any)?.phone || "").trim(),
+    }))
+    .filter((c) => c.id && c.name && c.phone)
+    .slice(0, 10);
+  await AsyncStorage.setItem(KEYS.sosContacts, JSON.stringify(clean));
+}
+
+export async function getSosLastSentAt(): Promise<number | null> {
+  const raw = await AsyncStorage.getItem(KEYS.sosLastSentAt).catch(() => null);
+  const n = raw != null ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export async function setSosLastSentAt(tsMs: number): Promise<void> {
+  const v = Number(tsMs);
+  if (!Number.isFinite(v) || v <= 0) return;
+  await AsyncStorage.setItem(KEYS.sosLastSentAt, String(Math.trunc(v)));
 }
 
