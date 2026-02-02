@@ -94,6 +94,9 @@ export default function SosScreen({ navigation }: Props) {
 
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [sosTarget, setSosTarget] = useState<"family" | "community">("family");
+
+  const telegramBotUsername = cleanString(process.env.EXPO_PUBLIC_TELEGRAM_BOT_USERNAME);
 
   const [helpTab, setHelpTab] = useState<"hospitals" | "clinics" | "pharmacies">("hospitals");
   // SOS works worldwide. Nearby medical directory is Tripoli-only for now, but allow testing from anywhere.
@@ -273,6 +276,24 @@ export default function SosScreen({ navigation }: Props) {
     }
   }
 
+  async function connectTelegramForFamily() {
+    if (!telegramBotUsername) {
+      Alert.alert("Missing Telegram bot", "Set EXPO_PUBLIC_TELEGRAM_BOT_USERNAME in your app env first.");
+      return;
+    }
+    try {
+      const deviceId = await ensureDeviceId();
+      const url = `https://t.me/${telegramBotUsername}?start=${encodeURIComponent(deviceId)}`;
+      await Linking.openURL(url);
+      Alert.alert(
+        "Next step",
+        "After opening the bot, add it to your family group and send /link in the group to connect it.",
+      );
+    } catch {
+      Alert.alert("Could not open Telegram", "Please install Telegram and try again.");
+    }
+  }
+
   async function sendToTelegram() {
     setSendError(null);
     const msg = cleanString(fullMessage);
@@ -298,10 +319,16 @@ export default function SosScreen({ navigation }: Props) {
         lon: coords?.lon,
         deviceId,
         source: Platform.OS === "web" ? "khidmaty-web" : "khidmaty-mobile",
+        target: sosTarget,
       });
       if (res.ok === false) throw new Error("not_ok");
       await setSosLastSentAt(now()).catch(() => null);
-      Alert.alert("Sent", "Your SOS alert was sent to the community channel.");
+      Alert.alert(
+        "Sent",
+        sosTarget === "family"
+          ? "Your SOS was sent to your family group (if linked). Otherwise it falls back to the community channel."
+          : "Your SOS was sent to the community channel.",
+      );
     } catch {
       setSendError("Could not send SOS. Check your internet and try again.");
     } finally {
@@ -363,6 +390,35 @@ export default function SosScreen({ navigation }: Props) {
               <Text style={styles.autoInfoTitle}>Auto info</Text>
               <Text style={styles.autoInfoText}>{autoInfo}</Text>
             </View>
+          ) : null}
+
+          <View style={styles.tabsRow}>
+            {[
+              { id: "family" as const, label: "Family group" },
+              { id: "community" as const, label: "Community" },
+            ].map((t) => {
+              const selected = t.id === sosTarget;
+              return (
+                <Pressable
+                  key={t.id}
+                  onPress={() => setSosTarget(t.id)}
+                  style={[styles.tab, selected && styles.tabSelected]}
+                >
+                  <Text style={[styles.tabText, selected && styles.tabTextSelected]}>{t.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {sosTarget === "family" ? (
+            <Pressable
+              onPress={() => void connectTelegramForFamily()}
+              style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed]}
+            >
+              <Text style={styles.secondaryBtnText}>
+                {telegramBotUsername ? "Connect family group (Telegram)" : "Connect family group (set bot username)"}
+              </Text>
+            </Pressable>
           ) : null}
 
           <View style={styles.row}>

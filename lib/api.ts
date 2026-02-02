@@ -601,6 +601,8 @@ export type SosAlertInput = {
   lon?: number;
   deviceId?: string;
   source?: string;
+  // Prefer family group if linked; otherwise fall back to community channel.
+  target?: "family" | "community";
 };
 
 export type SosAlertResult = { ok: boolean; id?: string };
@@ -620,6 +622,7 @@ export async function sendSosAlert(input: SosAlertInput): Promise<SosAlertResult
     lon: Number.isFinite(Number(input.lon)) ? Number(input.lon) : undefined,
     deviceId: cleanString(input.deviceId) || undefined,
     source: cleanString(input.source) || "khidmaty-mobile",
+    target: input.target === "community" ? "community" : "family",
     createdAt: new Date().toISOString(),
   };
 
