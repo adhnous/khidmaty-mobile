@@ -95,9 +95,9 @@ export default function SosScreen({ navigation }: Props) {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
-  const inLibya = !!findNearestCity(coords?.lat ?? NaN, coords?.lon ?? NaN);
-
   const [helpTab, setHelpTab] = useState<"hospitals" | "clinics" | "pharmacies">("hospitals");
+  // SOS works worldwide. Nearby medical directory is Tripoli-only for now, but allow testing from anywhere.
+  const [helpCityMode, setHelpCityMode] = useState<"auto" | "tripoli">("auto");
   const [helpLoading, setHelpLoading] = useState(false);
   const [helpResults, setHelpResults] = useState<SearchResult[]>([]);
   const [helpError, setHelpError] = useState<string | null>(null);
@@ -138,7 +138,8 @@ export default function SosScreen({ navigation }: Props) {
       if (nearest) setCity(nearest.value);
       else setCity("");
 
-      if (!nearest) setLocError(arText.locationNotNear);
+      // Our city list is Libya-only. Don't block SOS if you're outside Libya.
+      if (!nearest) setLocError("City auto-detection is currently Libya-only. SOS still works worldwide.");
     } catch (err: any) {
       const message =
         err?.message === "Permission denied" ? arText.locationPermission : arText.locationUnavailable;
@@ -150,21 +151,22 @@ export default function SosScreen({ navigation }: Props) {
     }
   }
 
-  async function loadNearbyHelp(nextTab: typeof helpTab) {
+  async function loadNearbyHelp(nextTab: typeof helpTab, mode: typeof helpCityMode = helpCityMode) {
     setHelpTab(nextTab);
     setHelpError(null);
 
-    if (!coords || !inLibya) {
+    if (!coords) {
       setHelpResults([]);
-      setHelpError("Enable GPS in Libya to see nearby help.");
+      setHelpError("Enable GPS to see nearby help.");
       return;
     }
 
-    // Currently we only have a bundled Tripoli medical directory. Keep it explicit.
-    const isTripoli = city && city.toLowerCase() === "tripoli";
+    // Currently we only have a bundled Tripoli medical directory.
+    const helpCity = mode === "tripoli" ? "Tripoli" : city;
+    const isTripoli = helpCity && helpCity.toLowerCase() === "tripoli";
     if (!isTripoli) {
       setHelpResults([]);
-      setHelpError("Nearby medical directory is currently available for Tripoli only.");
+      setHelpError('Tripoli directory only. Select "Tripoli" to test nearby help.');
       return;
     }
 
@@ -427,8 +429,29 @@ export default function SosScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Nearby Medical Help (Tripoli)</Text>
+          <Text style={styles.cardTitle}>Nearby Medical Help</Text>
           <Text style={styles.hintText}>Hospitals, clinics, and pharmacies from the Tripoli directory.</Text>
+
+          <View style={styles.tabsRow}>
+            {[
+              { id: "auto" as const, label: "Auto city (GPS)" },
+              { id: "tripoli" as const, label: "Tripoli" },
+            ].map((t) => {
+              const selected = t.id === helpCityMode;
+              return (
+                <Pressable
+                  key={t.id}
+                  onPress={() => {
+                    setHelpCityMode(t.id);
+                    void loadNearbyHelp(helpTab, t.id);
+                  }}
+                  style={[styles.tab, selected && styles.tabSelected]}
+                >
+                  <Text style={[styles.tabText, selected && styles.tabTextSelected]}>{t.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
           <View style={styles.tabsRow}>
             {[
