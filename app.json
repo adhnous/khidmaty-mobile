@@ -29,6 +29,9 @@
         "projectId": "b6bb979a-2bab-4bf1-8a0f-7d9808060d84"
       }
     },
-    "owner": "fadhnousss-organization"
+    "owner": "fadhnousss-organization",
+    "plugins": [
+      "expo-web-browser"
+    ]
   }
 }

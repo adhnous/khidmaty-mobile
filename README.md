@@ -10,7 +10,7 @@ This repo includes a **Trusted SOS** system:
 
 ### Install deps (Expo SDK 54)
 
-- `npx expo install expo-notifications expo-device expo-av expo-application`
+- `npx expo install expo-notifications expo-device expo-av expo-application expo-auth-session expo-web-browser`
 - `npm install firebase`
 
 ### Firebase env vars
@@ -26,6 +26,19 @@ This repo includes a **Trusted SOS** system:
 
 For standalone builds, also set:
 - `EXPO_PUBLIC_EAS_PROJECT_ID` (used by `expo-notifications` to generate Expo push tokens)
+
+### Google Sign-In (optional)
+
+This app supports **Continue with Google**:
+
+- Web: uses Firebase popup auth.
+- iOS/Android: uses Expo AuthSession + Firebase `signInWithCredential`.
+
+Set in `.env`:
+- `EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_ID` (OAuth Client ID for a **Web application**)
+
+In Google Cloud Console, add this **Authorized redirect URI** to that client:
+- `https://auth.expo.io/@<EXPO_OWNER>/<EXPO_SLUG>`
 
 ### Deploy (Rules)
 

@@ -12,7 +12,7 @@ function clean(v: unknown): string {
 }
 
 export default function LoginScreen({ navigation }: Props) {
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -33,6 +33,21 @@ export default function LoginScreen({ navigation }: Props) {
     } catch (err: any) {
       const msg = typeof err?.message === "string" ? err.message : "Could not login.";
       setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onGoogle() {
+    setError(null);
+    setBusy(true);
+    try {
+      await loginWithGoogle();
+      navigation.goBack();
+    } catch (err: any) {
+      const raw = typeof err?.message === "string" ? err.message : "";
+      if (raw === "cancel" || raw === "dismiss") setError("Sign-in cancelled.");
+      else setError(raw || "Could not sign in with Google.");
     } finally {
       setBusy(false);
     }
@@ -85,6 +100,14 @@ export default function LoginScreen({ navigation }: Props) {
           <Text style={styles.primaryBtnText}>{busy ? "Signing in..." : "Login"}</Text>
         </Pressable>
 
+        <Pressable
+          onPress={() => void onGoogle()}
+          disabled={busy}
+          style={({ pressed }) => [styles.secondaryBtn, pressed && !busy && styles.secondaryBtnPressed, busy && styles.secondaryBtnDisabled]}
+        >
+          <Text style={styles.secondaryBtnText}>Continue with Google</Text>
+        </Pressable>
+
         <Pressable onPress={() => navigation.navigate("Register")} style={styles.linkBtn}>
           <Text style={styles.linkText}>Create account</Text>
         </Pressable>
@@ -130,7 +153,18 @@ const styles = StyleSheet.create({
   primaryBtnPressed: { opacity: 0.92 },
   primaryBtnDisabled: { opacity: 0.7 },
   primaryBtnText: { color: "#fff", fontSize: 13, fontWeight: "900" },
+  secondaryBtn: {
+    height: 46,
+    borderRadius: theme.radii.md,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: "rgba(255,255,255,0.03)",
+  },
+  secondaryBtnPressed: { opacity: 0.92 },
+  secondaryBtnDisabled: { opacity: 0.7 },
+  secondaryBtnText: { color: theme.colors.text, fontSize: 13, fontWeight: "900" },
   linkBtn: { alignSelf: "center", paddingVertical: 6 },
   linkText: { color: theme.colors.primary, fontWeight: "900", fontSize: 13 },
 });
-
