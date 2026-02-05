@@ -4,6 +4,7 @@ const KEYS = {
   deviceId: "khidmaty:deviceId:v1",
   recentQueries: "khidmaty:recentQueries:v1",
   favorites: "khidmaty:favorites:v1",
+  authLastEmail: "khidmaty:auth:lastEmail:v1",
   sosContacts: "khidmaty:sos:contacts:v1",
   sosLastSentAt: "khidmaty:sos:lastSentAt:v1",
   sosShakeEnabled: "khidmaty:sos:shakeEnabled:v1",
@@ -95,6 +96,18 @@ export async function toggleFavorite(key: string): Promise<boolean> {
   else set.delete(v);
   await AsyncStorage.setItem(KEYS.favorites, JSON.stringify(Array.from(set)));
   return nextVal;
+}
+
+export async function getAuthLastEmail(): Promise<string | null> {
+  const raw = await AsyncStorage.getItem(KEYS.authLastEmail).catch(() => null);
+  const v = String(raw || "").trim();
+  return v ? v : null;
+}
+
+export async function setAuthLastEmail(email: string): Promise<void> {
+  const v = String(email || "").trim();
+  if (!v) return;
+  await AsyncStorage.setItem(KEYS.authLastEmail, v).catch(() => null);
 }
 
 export type SosContact = {

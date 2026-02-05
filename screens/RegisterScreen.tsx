@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { useAuth } from "../lib/auth";
 import { normalizePhone } from "../lib/identifiers";
+import { getAuthLastEmail, setAuthLastEmail } from "../lib/storage";
 import { theme } from "../lib/theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Register">;
@@ -19,6 +20,19 @@ export default function RegisterScreen({ navigation }: Props) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void getAuthLastEmail()
+      .then((v) => {
+        if (!alive || !v) return;
+        setEmail((prev) => (prev ? prev : v));
+      })
+      .catch(() => null);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function onSubmit() {
     setError(null);
@@ -38,6 +52,7 @@ export default function RegisterScreen({ navigation }: Props) {
       setError("Password must be at least 6 characters.");
       return;
     }
+    void setAuthLastEmail(em);
     setBusy(true);
     try {
       await register(em, pw, phoneNormalized);

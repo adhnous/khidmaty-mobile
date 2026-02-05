@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { useAuth } from "../lib/auth";
+import { getAuthLastEmail, setAuthLastEmail } from "../lib/storage";
 import { theme } from "../lib/theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Login">;
@@ -18,6 +19,19 @@ export default function LoginScreen({ navigation }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let alive = true;
+    void getAuthLastEmail()
+      .then((v) => {
+        if (!alive || !v) return;
+        setEmail((prev) => (prev ? prev : v));
+      })
+      .catch(() => null);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   async function onSubmit() {
     setError(null);
     const em = clean(email);
@@ -26,6 +40,7 @@ export default function LoginScreen({ navigation }: Props) {
       setError("Enter email and password.");
       return;
     }
+    void setAuthLastEmail(em);
     setBusy(true);
     try {
       await login(em, pw);
