@@ -14,11 +14,9 @@ import {
 } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { createLead } from "../lib/api";
+import { createLead, getListingDetails } from "../lib/api";
 import { useChat, createMessageId } from "../lib/chat";
 import { ensureDeviceId, isFavorite, toggleFavorite } from "../lib/storage";
-import { getFirestoreDb } from "../lib/firebase";
-import { doc, getDocFromServer } from "firebase/firestore";
 import { theme } from "../lib/theme";
 import { getApiBaseUrl } from "../lib/apiBase";
 
@@ -34,7 +32,7 @@ function formatRating(rating?: number): string {
   return `${rating.toFixed(1)}*`;
 }
 
-type RemoteDetails = { description?: string; thumb?: string };
+type RemoteDetails = { description?: string; thumb?: string; lat?: number; lon?: number };
 
 function cleanString(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
@@ -46,18 +44,6 @@ function resolveAssetUrl(input: unknown): string | undefined {
   if (/^https?:\/\//i.test(url) || url.startsWith("data:") || url.startsWith("file:")) return url;
   if (url.startsWith("/")) return `${getApiBaseUrl()}${url}`;
   return url;
-}
-
-function firstImageUrl(images: any): string | undefined {
-  if (!Array.isArray(images) || images.length === 0) return undefined;
-  const first = images[0];
-  if (typeof first === "string") return resolveAssetUrl(first);
-  return (
-    resolveAssetUrl(first?.url) ||
-    resolveAssetUrl(first?.displayUrl) ||
-    resolveAssetUrl(first?.src) ||
-    undefined
-  );
 }
 
 export default function ListingDetailScreen({ navigation, route }: Props) {
@@ -92,32 +78,13 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     let alive = true;
+    setRemoteDetails(null);
     (async () => {
       if (isStatic) return;
-      if (result.type === "provider") return;
-      const db = getFirestoreDb();
-      if (!db) return;
-
-      const collectionName = result.type === "item" ? "sale_items" : "services";
-
-      try {
-        const snap = await getDocFromServer(doc(db, collectionName, result.id));
-        if (!alive) return;
-        if (!snap.exists()) return;
-
-        const data = snap.data() as any;
-        const description = cleanString(data?.description) || undefined;
-        const thumb =
-          firstImageUrl(data?.images) ||
-          resolveAssetUrl(data?.thumb) ||
-          resolveAssetUrl(data?.imageUrl) ||
-          resolveAssetUrl(data?.photoURL) ||
-          undefined;
-
-        if (description || thumb) setRemoteDetails({ description, thumb });
-      } catch {
-        // Optional enhancement only; ignore failures and keep UI functional.
-      }
+      if (result.type !== "service" && result.type !== "item") return;
+      const details = await getListingDetails({ type: result.type, id: result.id });
+      if (!alive) return;
+      if (details) setRemoteDetails(details);
     })();
     return () => {
       alive = false;
@@ -175,15 +142,12 @@ export default function ListingDetailScreen({ navigation, route }: Props) {
     }
   }
 
-  const displayThumb = remoteDetails?.thumb ?? resolveAssetUrl(result.thumb);
+  const displayThumb = resolveAssetUrl(remoteDetails?.thumb ?? result.thumb);
   const displayDescription = remoteDetails?.description ?? result.description;
+  const lat = typeof remoteDetails?.lat === "number" && Number.isFinite(remoteDetails.lat) ? remoteDetails.lat : result.lat;
+  const lon = typeof remoteDetails?.lon === "number" && Number.isFinite(remoteDetails.lon) ? remoteDetails.lon : result.lon;
   const coords =
-    typeof result.lat === "number" &&
-    typeof result.lon === "number" &&
-    Number.isFinite(result.lat) &&
-    Number.isFinite(result.lon)
-      ? { lat: result.lat, lon: result.lon }
-      : null;
+    typeof lat === "number" && typeof lon === "number" && Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
   // Apple blocks `maps.apple.com` on many non-Apple desktop browsers (403).
   // So only use Apple Maps on native iOS; use Google Maps everywhere else (including web).
   const preferAppleMaps = Platform.OS === "ios";

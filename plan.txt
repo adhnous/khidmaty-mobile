@@ -1,0 +1,218 @@
+You are an expert Expo React Native + Firebase engineer.
+
+Goal: Implement a “Trusted SOS Alarm” system for civilians.
+Requirement: When a user triggers SOS, ONLY their trusted contacts (accepted) receive a push notification (with sound). On tap, the app shows sender message + location and plays a siren/vibration until stopped.
+No public broadcast. Having the app installed is NOT enough to receive alerts.
+
+We are using:
+- Expo React Native (Expo SDK 54)
+- Firebase Authentication (email/password for MVP)
+- Firestore for data
+- Firebase Cloud Functions (Node/TypeScript) to send **Expo push notifications** (via Expo Push API)
+- Expo Push API for push delivery (server-side only)
+- Optional: n8n webhook for Telegram logging; DO NOT use n8n for choosing recipients.
+
+CRITICAL CONSTRAINTS:
+1) Do NOT pin package versions manually. Use `npx expo install` to match Expo SDK 54.
+2) Push must be routed server-side using Firestore trusted relationships (ignore client recipient lists).
+3) Strong privacy & anti-abuse protections (rate limits, acceptance flow, restricted reads).
+4) Code must be production-minded, minimal, and runnable.
+
+========================================
+DATA MODEL (Firestore)
+========================================
+
+Collections:
+
+1) users/{uid}
+   - email
+   - phone (optional, E.164 like +218...)
+   - displayName (optional)
+   - createdAt
+
+2) devices/{uid}/tokens/{deviceId}
+   - expoPushToken (string)
+   - platform ("android"|"ios")
+   - updatedAt (timestamp)
+
+3) trusted/{ownerUid}/contacts/{trustedUid}
+   - status: "pending" | "accepted" | "rejected"
+   - requestedAt
+   - respondedAt
+   - ownerUid
+   - trustedUid
+
+4) sos_events/{eventId}
+   - senderUid
+   - message
+   - lat
+   - lon
+   - createdAt
+   - activeUntil (timestamp)  // short TTL, e.g., now + 24h, or even 2h
+
+5) sos_rate/{senderUid}
+   - windowStart (timestamp)
+   - count (number)
+
+========================================
+APP FEATURES (Expo)
+========================================
+
+A) Firebase init
+- Create `src/lib/firebase.ts` to initialize Firebase client SDK using env vars.
+- Use Expo public env vars (EXPO_PUBLIC_FIREBASE_...)
+
+B) Authentication (email/password)
+- Screens: Login / Register
+- Store auth state globally (context/hook)
+ - Registration collects an optional phone number (used for trusted contact lookup)
+
+C) Device push registration (Expo push token)
+- On login or Settings screen:
+  - Request notification permissions
+  - Android: create notification channel "sos" with MAX importance, vibration, and default sound
+  - Obtain an Expo push token in Expo managed workflow (expo-notifications)
+  - Save token in Firestore under devices/{uid}/tokens/{deviceId}
+
+Use:
+- expo-notifications
+- expo-device
+- expo-application (or persistent UUID saved once) for deviceId
+
+IMPORTANT:
+- Must work on physical devices. Emulators are not reliable for push.
+
+D) Trusted contacts (request + accept)
+- Screen "Trusted Contacts"
+  1) Add contact by email:
+     - Look up user by email or phone (via Cloud Function, not client-side queries)
+     - Create `trusted/{ownerUid}/contacts/{trustedUid}` = status "pending"
+     - Also create an inverse "incoming request" record OR query where trustedUid == current user
+  2) Incoming Requests screen:
+     - List requests where trustedUid == current user and status == "pending"
+     - Buttons: Accept / Reject
+     - Accept sets status "accepted" and respondedAt
+
+RULE: Owner CANNOT set status to accepted. Only the trusted user can accept.
+
+E) SOS trigger (sender)
+- SOS screen:
+  - get GPS (lat/lon)
+  - message input
+  - create new doc in `sos_events` with senderUid = current user
+  - call HTTPS callable / HTTP endpoint Cloud Function `sendSos({ eventId })`
+  - optionally call n8n webhook for Telegram logging (non-authoritative)
+
+F) Receiver behavior (alarm + location)
+- Listen for notification taps:
+  - When user taps push notification with data `{ type:"sos", eventId }`
+  - Navigate to `IncomingSOSScreen(eventId)`
+- IncomingSOSScreen:
+  - Load sos event doc from Firestore
+  - Display:
+    - message
+    - google maps link: https://www.google.com/maps?q=LAT,LON
+    - createdAt
+  - Start siren audio loop + vibration pattern until user presses "Stop Alarm"
+  - Provide buttons:
+    - Open Maps
+    - Stop Alarm
+    - Acknowledge (writes ack to Firestore optional)
+- Siren implementation:
+  - Use expo-av with an included local asset `assets/siren.wav`
+  - Loop playback
+  - Use React Native Vibration: Vibration.vibrate([0, 500, 500, 500], true)
+
+========================================
+SERVER (Firebase Cloud Functions, TypeScript)
+========================================
+
+Implement:
+1) `sendSos` function (HTTPS callable or HTTP with auth)
+- Verify Firebase ID token (auth required)
+- Input: { eventId }
+- Load sos_events/{eventId}
+- Ensure event.senderUid == auth.uid
+- Rate limit using sos_rate/{senderUid}:
+  - e.g., max 3 SOS in 30 minutes
+  - enforce with Firestore transaction
+- Fetch accepted trusted contacts:
+  - trusted/{senderUid}/contacts/* where status == "accepted"
+- For each trustedUid:
+  - fetch device tokens in devices/{trustedUid}/tokens/*
+- Send push via **Expo Push API** to all tokens:
+  - notification: title "🚨 SOS Alert", body "Tap to view location"
+  - data: { type:"sos", eventId }
+  - Android: set priority high and channelId "sos"
+  - iOS: default sound (no critical alerts)
+
+Use Expo Push API:
+- POST https://exp.host/--/api/v2/push/send (batch in chunks, e.g. 100)
+
+2) Optional: `onSosCreated` trigger (optional alternative)
+- Firestore trigger on sos_events create to call send logic
+- But must still rate limit and verify sender integrity.
+
+========================================
+FIRESTORE SECURITY RULES
+========================================
+
+Write `firestore.rules` that enforces:
+
+- devices:
+  - only owner can read/write their own devices tokens
+
+- users:
+  - allow read minimal public profile (uid/email) OR provide a controlled lookup method
+  - if you allow email lookup in app, do it via a Cloud Function to avoid exposing all users
+
+- trusted:
+  - owner can create pending request
+  - trusted user can read requests addressed to them and can set status to accepted/rejected
+  - owner cannot set accepted; only trusted user can
+
+- sos_events:
+  - allow create only if request.auth.uid == request.resource.data.senderUid
+  - allow get if:
+    - request.auth.uid == resource.data.senderUid
+    OR
+    - exists(trusted/{resource.data.senderUid}/contacts/{request.auth.uid}) AND status == "accepted"
+  - disallow list queries (allow list: false)
+
+========================================
+n8n (OPTIONAL)
+========================================
+
+Keep existing n8n webhook for Telegram logging:
+- After SOS creation or after sendSos success, call n8n webhook to log and notify Telegram.
+- DO NOT send pushes from n8n in this design.
+- n8n must never determine recipients.
+
+========================================
+DELIVERABLES
+========================================
+
+Produce:
+1) Expo app code changes:
+   - firebase init
+   - auth screens
+   - push registration module
+   - trusted contacts request/accept screens
+   - SOS creation + call Cloud Function
+   - incoming SOS alarm screen with siren/vibration
+   - notification tap handling + navigation
+
+2) Firebase Cloud Functions (TypeScript):
+   - sendSos endpoint with token verification, rate limiting, recipient lookup, FCM send
+
+3) Firestore security rules
+
+4) Setup instructions (exact commands):
+   - `npx expo install expo-notifications expo-device expo-av expo-application`
+   - `npm install firebase`
+   - Firebase project env vars
+   - Deploy functions
+   - Testing checklist with 2 real phones
+
+IMPORTANT: Do not pin non-existent versions. Use `npx expo install` only.
+Code must be clean and runnable.

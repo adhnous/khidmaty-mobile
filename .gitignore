@@ -2,6 +2,7 @@
 node_modules/
 .expo/
 dist/
+functions/lib/
 
 # Keep local env files out of git (use Vercel env vars in production)
 .env

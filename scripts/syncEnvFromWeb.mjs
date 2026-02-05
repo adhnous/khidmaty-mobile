@@ -91,17 +91,27 @@ function parseEnvFile(text) {
   return out;
 }
 
-function loadWebFirebasePublicConfig(repoRoot) {
-  const candidates = [path.join(repoRoot, ".env.local"), path.join(repoRoot, ".env.example")];
-  for (const p of candidates) {
+function loadFirebasePublicConfig(candidatePaths) {
+  /** @type {Record<string, string>} */
+  const out = {};
+
+  for (const p of candidatePaths) {
     if (!fs.existsSync(p)) continue;
     const env = parseEnvFile(fs.readFileSync(p, "utf8"));
-    const picked = Object.fromEntries(
-      Object.entries(env).filter(([k]) => k.startsWith("NEXT_PUBLIC_FIREBASE_")),
-    );
-    if (Object.keys(picked).length > 0) return picked;
+
+    for (const [k, v] of Object.entries(env)) {
+      // Standalone repo: EXPO_PUBLIC_FIREBASE_* already exist in .env.local.
+      if (k.startsWith("EXPO_PUBLIC_FIREBASE_")) out[k] = v;
+
+      // Monorepo: copy NEXT_PUBLIC_FIREBASE_* from the web app env.
+      if (k.startsWith("NEXT_PUBLIC_FIREBASE_")) {
+        const expoKey = k.replace(/^NEXT_PUBLIC_/, "EXPO_PUBLIC_");
+        if (!out[expoKey]) out[expoKey] = v;
+      }
+    }
   }
-  return {};
+
+  return out;
 }
 
 function main() {
@@ -115,7 +125,15 @@ function main() {
     process.exit(1);
   }
 
-  const webFirebase = loadWebFirebasePublicConfig(repoRoot);
+  const firebasePublic = loadFirebasePublicConfig([
+    // Standalone repo
+    path.join(projectRoot, ".env.local"),
+    path.join(projectRoot, ".env"),
+    path.join(projectRoot, ".env.example"),
+    // Monorepo parent (web app env usually lives there)
+    path.join(repoRoot, ".env.local"),
+    path.join(repoRoot, ".env.example"),
+  ]);
 
   /** @type {string[]} */
   const lines = [];
@@ -125,14 +143,21 @@ function main() {
   lines.push(`# Laptop LAN IP: ${ip}`);
   lines.push(`EXPO_PUBLIC_API_BASE_URL=http://${ip}:3000`);
   lines.push(`EXPO_PUBLIC_N8N_BASE_URL=http://${ip}:5678`);
+  lines.push("");
+  lines.push("# Optional: route chat searches through n8n (lets you add bot logic)");
+  lines.push("EXPO_PUBLIC_USE_N8N_CHAT=0");
+  lines.push("EXPO_PUBLIC_N8N_CHAT_WEBHOOK_PATH=/webhook/khidmaty-chat");
+  lines.push("");
+  lines.push("# Optional: SOS webhook (Telegram/community alert via n8n)");
+  lines.push("EXPO_PUBLIC_N8N_SOS_WEBHOOK_PATH=/webhook/khidmaty-sos");
+  lines.push("");
+  lines.push("# Optional: Telegram bot username (for family group linking deep-link)");
+  lines.push("EXPO_PUBLIC_TELEGRAM_BOT_USERNAME=");
 
-  if (Object.keys(webFirebase).length > 0) {
+  if (Object.keys(firebasePublic).length > 0) {
     lines.push("");
-    lines.push("# Firebase (public web config copied from repo root)");
-    for (const [k, v] of Object.entries(webFirebase)) {
-      const expoKey = k.replace(/^NEXT_PUBLIC_/, "EXPO_PUBLIC_");
-      lines.push(`${expoKey}=${v}`);
-    }
+    lines.push("# Firebase (public client config)");
+    for (const [k, v] of Object.entries(firebasePublic)) lines.push(`${k}=${v}`);
   }
 
   lines.push("");
@@ -140,9 +165,14 @@ function main() {
   const outPath = path.join(projectRoot, ".env");
   fs.writeFileSync(outPath, lines.join("\n"), "utf8");
 
-  const writtenKeys = ["EXPO_PUBLIC_API_BASE_URL", "EXPO_PUBLIC_N8N_BASE_URL"].concat(
-    Object.keys(webFirebase).map((k) => k.replace(/^NEXT_PUBLIC_/, "EXPO_PUBLIC_")),
-  );
+  const writtenKeys = [
+    "EXPO_PUBLIC_API_BASE_URL",
+    "EXPO_PUBLIC_N8N_BASE_URL",
+    "EXPO_PUBLIC_USE_N8N_CHAT",
+    "EXPO_PUBLIC_N8N_CHAT_WEBHOOK_PATH",
+    "EXPO_PUBLIC_N8N_SOS_WEBHOOK_PATH",
+    "EXPO_PUBLIC_TELEGRAM_BOT_USERNAME",
+  ].concat(Object.keys(firebasePublic));
 
   console.log(`Wrote ${outPath}`);
   console.log("Keys:");

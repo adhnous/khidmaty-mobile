@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isAcceptedTrusted(senderUid, viewerUid) {
+      return exists(/databases/$(database)/documents/trusted/$(senderUid)/contacts/$(viewerUid)) &&
+        get(/databases/$(database)/documents/trusted/$(senderUid)/contacts/$(viewerUid)).data.status == "accepted";
+    }
+
+    match /users/{uid} {
+      allow get: if isUser(uid);
+      allow list: if false;
+
+      function emailMatchesAuth() {
+        return request.auth.token.email is string && request.resource.data.email == request.auth.token.email;
+      }
+
+      function displayNameValid() {
+        return !("displayName" in request.resource.data)
+          || (request.resource.data.displayName is string && request.resource.data.displayName.size() <= 80);
+      }
+
+      // Users can create/update only a minimal profile, and the stored email must match Auth.
+      // IMPORTANT: phone is set server-side (callable function) to prevent spoofing.
+      allow create: if isUser(uid)
+        && emailMatchesAuth()
+        && displayNameValid()
+        && request.resource.data.keys().hasOnly(["email", "displayName", "createdAt", "updatedAt"]);
+
+      allow update: if isUser(uid)
+        && emailMatchesAuth()
+        && displayNameValid()
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(["email", "displayName", "updatedAt"]);
+
+      allow delete: if false;
+    }
+
+    // Server-owned mapping (set via Cloud Function). No client reads/writes.
+    match /phone_index/{phone} {
+      allow read, write: if false;
+    }
+
+    match /devices/{uid}/tokens/{deviceId} {
+      allow read, write: if isUser(uid);
+    }
+
+    match /trusted/{ownerUid}/contacts/{trustedUid} {
+      allow read, list: if isUser(ownerUid);
+
+      allow create: if isUser(ownerUid)
+        && request.resource.data.ownerUid == ownerUid
+        && request.resource.data.trustedUid == trustedUid
+        && request.resource.data.status == "pending";
+
+      // Owner can cancel/remove.
+      allow delete: if isUser(ownerUid);
+
+      // Only the trusted user can accept/reject.
+      allow update: if isUser(trustedUid)
+        && resource.data.ownerUid == ownerUid
+        && resource.data.trustedUid == trustedUid
+        && resource.data.status == "pending"
+        && (request.resource.data.status == "accepted" || request.resource.data.status == "rejected")
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(["status", "respondedAt"]);
+    }
+
+    match /incoming/{trustedUid}/requests/{ownerUid} {
+      allow read, list: if isUser(trustedUid);
+
+      // Owner creates a pending request addressed to the trusted user.
+      allow create: if isUser(ownerUid)
+        && request.resource.data.ownerUid == ownerUid
+        && request.resource.data.trustedUid == trustedUid
+        && request.resource.data.status == "pending";
+
+      // Only the trusted user can accept/reject.
+      allow update: if isUser(trustedUid)
+        && resource.data.ownerUid == ownerUid
+        && resource.data.trustedUid == trustedUid
+        && resource.data.status == "pending"
+        && (request.resource.data.status == "accepted" || request.resource.data.status == "rejected")
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(["status", "respondedAt"]);
+
+      // Either side can delete for cleanup.
+      allow delete: if isUser(trustedUid) || isUser(ownerUid);
+    }
+
+    match /sos_events/{eventId} {
+      allow create: if signedIn()
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.message is string
+        && request.resource.data.message.size() > 0
+        && request.resource.data.message.size() <= 500
+        && request.resource.data.lat is number
+        && request.resource.data.lon is number;
+
+      allow get: if signedIn()
+        && (request.auth.uid == resource.data.senderUid || isAcceptedTrusted(resource.data.senderUid, request.auth.uid));
+
+      allow list: if false;
+      allow update, delete: if false;
+    }
+
+    // Server-only collections.
+    match /sos_rate/{senderUid} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,22 +1,37 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import * as Notifications from "expo-notifications";
 import SearchChatScreen from "../screens/SearchChatScreen";
 import ListingDetailScreen from "../screens/ListingDetailScreen";
 import HistoryScreen from "../screens/HistoryScreen";
 import SosScreen from "../screens/SosScreen";
+import LoginScreen from "../screens/LoginScreen";
+import RegisterScreen from "../screens/RegisterScreen";
+import TrustedContactsScreen from "../screens/TrustedContactsScreen";
+import IncomingRequestsScreen from "../screens/IncomingRequestsScreen";
+import IncomingSosScreen from "../screens/IncomingSosScreen";
 import type { SearchResult } from "../lib/types";
 import { theme } from "../lib/theme";
+import { useAuth } from "../lib/auth";
+import { registerDeviceForPush } from "../lib/push";
 
 export type RootStackParamList = {
+  Login: undefined;
+  Register: undefined;
   Search: { runQuery?: string } | undefined;
   ListingDetail: { result: SearchResult };
   History: undefined;
   SOS: undefined;
+  TrustedContacts: undefined;
+  IncomingRequests: undefined;
+  IncomingSOS: { eventId: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+const navRef = createNavigationContainerRef<RootStackParamList>();
 
 function SearchHeaderTitle() {
   return (
@@ -28,8 +43,40 @@ function SearchHeaderTitle() {
 }
 
 export function RootNavigator() {
+  const { user, logout } = useAuth();
+  const pendingSosEventIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    void registerDeviceForPush(user.uid).catch(() => null);
+  }, [user?.uid]);
+
+  useEffect(() => {
+    function handleResponse(res: Notifications.NotificationResponse | null | undefined) {
+      const data = (res?.notification?.request?.content?.data ?? {}) as any;
+      const type = typeof data?.type === "string" ? data.type : "";
+      const eventId = typeof data?.eventId === "string" ? data.eventId.trim() : "";
+      if (type !== "sos" || !eventId) return;
+
+      if (navRef.isReady()) navRef.navigate("IncomingSOS", { eventId });
+      else pendingSosEventIdRef.current = eventId;
+    }
+
+    const sub = Notifications.addNotificationResponseReceivedListener((res) => handleResponse(res));
+    void Notifications.getLastNotificationResponseAsync().then((res) => handleResponse(res));
+    return () => sub.remove();
+  }, []);
+
   return (
-    <NavigationContainer>
+    <NavigationContainer
+      ref={navRef}
+      onReady={() => {
+        const pending = pendingSosEventIdRef.current;
+        if (!pending) return;
+        pendingSosEventIdRef.current = null;
+        navRef.navigate("IncomingSOS", { eventId: pending });
+      }}
+    >
       <Stack.Navigator
         screenOptions={{
           headerShadowVisible: false,
@@ -54,11 +101,28 @@ export function RootNavigator() {
                   <Text style={styles.headerRightText}>SOS</Text>
                 </Pressable>
                 <Pressable
+                  onPress={() => navigation.navigate("TrustedContacts")}
+                  style={styles.headerRightBtn}
+                  hitSlop={10}
+                >
+                  <Text style={styles.headerRightText}>Trusted</Text>
+                </Pressable>
+                <Pressable
                   onPress={() => navigation.navigate("History")}
                   style={styles.headerRightBtn}
                   hitSlop={10}
                 >
                   <Text style={styles.headerRightText}>History</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    if (user?.uid) void logout();
+                    else navigation.navigate("Login");
+                  }}
+                  style={styles.headerRightBtn}
+                  hitSlop={10}
+                >
+                  <Text style={styles.headerRightText}>{user?.uid ? "Logout" : "Login"}</Text>
                 </Pressable>
               </View>
             ),
@@ -83,6 +147,41 @@ export function RootNavigator() {
           component={SosScreen}
           options={{
             title: "SOS",
+          }}
+        />
+        <Stack.Screen
+          name="TrustedContacts"
+          component={TrustedContactsScreen}
+          options={{
+            title: "Trusted Contacts",
+          }}
+        />
+        <Stack.Screen
+          name="IncomingRequests"
+          component={IncomingRequestsScreen}
+          options={{
+            title: "Incoming Requests",
+          }}
+        />
+        <Stack.Screen
+          name="IncomingSOS"
+          component={IncomingSosScreen}
+          options={{
+            title: "Incoming SOS",
+          }}
+        />
+        <Stack.Screen
+          name="Login"
+          component={LoginScreen}
+          options={{
+            title: "Login",
+          }}
+        />
+        <Stack.Screen
+          name="Register"
+          component={RegisterScreen}
+          options={{
+            title: "Register",
           }}
         />
       </Stack.Navigator>

@@ -17,6 +17,7 @@ import { FilterBar } from "../components/FilterBar";
 import { MessageBubble } from "../components/MessageBubble";
 import { ResultCard, ResultCardSkeleton } from "../components/ResultCard";
 import { chatSearchApiWithRetry } from "../lib/api";
+import { getApiBaseUrl, getN8nBaseUrl } from "../lib/apiBase";
 import { categoryList } from "../lib/categoryData";
 import { useChat, createMessageId } from "../lib/chat";
 import { addRecentQuery, ensureDeviceId } from "../lib/storage";
@@ -29,6 +30,26 @@ const PAGE_LIMIT = 10;
 
 function now() {
   return Date.now();
+}
+
+function envFlag(v: unknown): boolean {
+  const s = String(typeof v === "string" ? v : "").trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes" || s === "y";
+}
+
+function buildNetworkHint(): string | null {
+  if (Platform.OS === "web") return null;
+
+  const useN8nChat = envFlag(process.env.EXPO_PUBLIC_USE_N8N_CHAT);
+  const base = useN8nChat ? getN8nBaseUrl() : getApiBaseUrl();
+
+  if (/(localhost|127\.0\.0\.1)/i.test(base)) {
+    return useN8nChat
+      ? "Network error. Your n8n base URL is localhost (won't work on a real phone). Set EXPO_PUBLIC_N8N_BASE_URL to your laptop LAN IP or a public n8n URL, then restart Expo."
+      : "Network error. Your API base URL is localhost (won't work on a real phone). Set EXPO_PUBLIC_API_BASE_URL to your laptop LAN IP, then restart Expo.";
+  }
+
+  return null;
 }
 
 function escapeRegex(v: string): string {
@@ -203,10 +224,11 @@ export default function SearchChatScreen({ navigation, route }: Props) {
     } catch (err: any) {
       const status = Number(err?.status ?? NaN);
       const detail = typeof err?.detail === "string" ? err.detail : "";
+      const hint = buildNetworkHint();
       const msg =
         status === 400
           ? detail || "Invalid query. Try something longer."
-          : "Network error. Tap to retry.";
+          : hint || "Network error. Tap to retry.";
 
       if (status !== 400) {
         setSearchRetryByMsgId((prev) => ({ ...prev, [statusId]: { q, filters: opts.filters, userLocation: useLocation ?? null } }));
@@ -294,7 +316,8 @@ export default function SearchChatScreen({ navigation, route }: Props) {
         return { ...cur, results: nextResults, page: res.page || nextPage, hasMore };
       });
     } catch {
-      setLoadMoreErrorByMsgId((prev) => ({ ...prev, [msgId]: "Could not load more. Tap to retry." }));
+      const hint = buildNetworkHint();
+      setLoadMoreErrorByMsgId((prev) => ({ ...prev, [msgId]: hint || "Could not load more. Tap to retry." }));
     } finally {
       setLoadingMoreId(null);
       scrollToEnd(true);

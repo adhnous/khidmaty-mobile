@@ -185,6 +185,31 @@ export async function searchApiWithRetry(
   }
 }
 
+export type ListingDetails = {
+  description?: string;
+  thumb?: string;
+  lat?: number;
+  lon?: number;
+};
+
+export async function getListingDetails(input: { type: "service" | "item"; id: string }): Promise<ListingDetails | null> {
+  const type = input.type === "item" ? "item" : "service";
+  const id = cleanString(input.id);
+  if (!id) return null;
+
+  try {
+    const json = await apiGet<any>("/api/listing/details", { type, id }, { timeoutMs: 12000 });
+    const description = cleanString(json?.description);
+    const thumb = normalizeAssetUrl(json?.thumb);
+    const lat = cleanNumber(json?.lat);
+    const lon = cleanNumber(json?.lon);
+    if (!description && !thumb && lat === undefined && lon === undefined) return null;
+    return { description, thumb, lat, lon };
+  } catch {
+    return null;
+  }
+}
+
 export type ChatSearchResponse = SearchResponse & {
   assistantText?: string;
   suggestions?: string[];
