@@ -10,6 +10,56 @@ function cleanString(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+let webOnMessageAttached = false;
+
+async function attachWebOnMessageListener(input: { messaging: any; swReg: any }) {
+  if (webOnMessageAttached) return;
+  webOnMessageAttached = true;
+
+  try {
+    const mod = await import("firebase/messaging");
+    mod.onMessage(input.messaging, (payload: any) => {
+      const data = (payload?.data ?? {}) as any;
+      const title = typeof data?.title === "string" && data.title.trim() ? data.title.trim() : "🚨 SOS Alert";
+      const body = typeof data?.body === "string" && data.body.trim() ? data.body.trim() : "Tap to view location";
+      const type = typeof data?.type === "string" ? data.type : "sos";
+      const eventId = typeof data?.eventId === "string" ? data.eventId.trim() : "";
+
+      try {
+        if (typeof input?.swReg?.showNotification === "function") {
+          void input.swReg.showNotification(title, {
+            body,
+            data: { type, eventId },
+            requireInteraction: true,
+          });
+          return;
+        }
+      } catch {
+        // ignore
+      }
+
+      try {
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          const n = new Notification(title, { body, data: { type, eventId } } as any);
+          n.onclick = () => {
+            try {
+              window.focus();
+            } catch {
+              // ignore
+            }
+            const url = eventId ? `/?sosEventId=${encodeURIComponent(eventId)}` : "/";
+            window.location.assign(url);
+          };
+        }
+      } catch {
+        // ignore
+      }
+    });
+  } catch {
+    // ignore
+  }
+}
+
 async function registerWebForPush(uid: string): Promise<{ webPushToken?: string }> {
   if (!uid) throw new Error("missing_uid");
   if (Platform.OS !== "web") return {};
@@ -47,9 +97,10 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
   }
 
   let token = "";
+  let messaging: any = null;
   try {
     const mod = await import("firebase/messaging");
-    const messaging = mod.getMessaging(client.app);
+    messaging = mod.getMessaging(client.app);
     token = cleanString(
       await mod.getToken(messaging, {
         vapidKey,
@@ -60,6 +111,8 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
     return {};
   }
   if (!token) return {};
+
+  void attachWebOnMessageListener({ messaging, swReg }).catch(() => null);
 
   const db = getFirestoreDb();
   if (!db) throw new Error("missing_firestore");
