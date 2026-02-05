@@ -1,19 +1,22 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Linking,
   Modal,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
   Vibration,
 } from "react-native";
 import * as Location from "expo-location";
+import { Accelerometer } from "expo-sensors";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import type { RootStackParamList } from "../navigation/RootNavigator";
@@ -21,6 +24,7 @@ import { apiPost } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { startAlarm, stopAlarm } from "../lib/alarm";
 import { getFirestoreDb } from "../lib/firebase";
+import { getSosShakeEnabled, setSosShakeEnabled } from "../lib/storage";
 import { theme } from "../lib/theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SOS">;
@@ -45,7 +49,23 @@ export default function SosScreen({ navigation }: Props) {
   const [alarmModalOpen, setAlarmModalOpen] = useState(false);
   const [alarmStarting, setAlarmStarting] = useState(false);
 
+  const shakeSupported = Platform.OS !== "web";
+  const [shakeEnabled, setShakeEnabled] = useState(false);
+  const shakeStateRef = useRef({ count: 0, lastShakeAt: 0, lastTriggerAt: 0 });
+  const sendSosRef = useRef<() => void>(() => {});
+  const sendingRef = useRef(false);
+  const userUidRef = useRef("");
+  sendingRef.current = sending;
+  userUidRef.current = user?.uid || "";
+
   const mapsUrl = useMemo(() => (coords ? buildMapsUrl(coords.lat, coords.lon) : ""), [coords]);
+
+  useEffect(() => {
+    if (!shakeSupported) return;
+    void getSosShakeEnabled()
+      .then((v) => setShakeEnabled(!!v))
+      .catch(() => null);
+  }, [shakeSupported]);
 
   useEffect(() => {
     // Stop alarm if the user leaves the SOS screen.
@@ -132,6 +152,60 @@ export default function SosScreen({ navigation }: Props) {
     }
   }
 
+  useEffect(() => {
+    sendSosRef.current = () => {
+      void sendSos();
+    };
+  });
+
+  useEffect(() => {
+    if (!shakeSupported) return;
+    if (!shakeEnabled) return;
+
+    const SHAKE_G_THRESHOLD = 2.7;
+    const SHAKE_WINDOW_MS = 1400;
+    const SHAKE_DEBOUNCE_MS = 350;
+    const COOLDOWN_MS = 12_000;
+
+    try {
+      Accelerometer.setUpdateInterval(140);
+    } catch {
+      // ignore
+    }
+
+    const sub = Accelerometer.addListener((data) => {
+      if (!data) return;
+      if (!userUidRef.current) return;
+      if (sendingRef.current) return;
+
+      const x = typeof (data as any).x === "number" ? (data as any).x : 0;
+      const y = typeof (data as any).y === "number" ? (data as any).y : 0;
+      const z = typeof (data as any).z === "number" ? (data as any).z : 0;
+
+      const g = Math.sqrt(x * x + y * y + z * z);
+      if (!Number.isFinite(g) || g < SHAKE_G_THRESHOLD) return;
+
+      const now = Date.now();
+      const s = shakeStateRef.current;
+      if (now - s.lastTriggerAt < COOLDOWN_MS) return;
+      if (now - s.lastShakeAt < SHAKE_DEBOUNCE_MS) return;
+
+      if (now - s.lastShakeAt > SHAKE_WINDOW_MS) s.count = 0;
+      s.lastShakeAt = now;
+      s.count += 1;
+
+      if (s.count < 2) return;
+      s.count = 0;
+      s.lastTriggerAt = now;
+
+      sendSosRef.current();
+    });
+
+    return () => {
+      sub.remove();
+    };
+  }, [shakeEnabled, shakeSupported]);
+
   async function startPanicAlarm() {
     setAlarmStarting(true);
     try {
@@ -150,6 +224,11 @@ export default function SosScreen({ navigation }: Props) {
     } finally {
       setAlarmModalOpen(false);
     }
+  }
+
+  async function toggleShake(next: boolean) {
+    setShakeEnabled(next);
+    void setSosShakeEnabled(next).catch(() => null);
   }
 
   return (
@@ -234,6 +313,22 @@ export default function SosScreen({ navigation }: Props) {
             multiline
             style={[styles.input, styles.inputMulti]}
           />
+
+          <View style={styles.shakeRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.shakeTitle}>Shake to send</Text>
+              <Text style={styles.hintText}>
+                {shakeSupported ? "Shake your phone twice to send SOS." : "Shake is not available on web."}
+              </Text>
+            </View>
+            <Switch
+              value={shakeEnabled}
+              onValueChange={(v) => void toggleShake(v)}
+              disabled={!shakeSupported}
+              trackColor={{ false: "#D1D5DB", true: "rgba(229,33,23,0.35)" }}
+              thumbColor={shakeEnabled ? theme.colors.danger : "#F9FAFB"}
+            />
+          </View>
 
           <Pressable
             onPress={() => void sendSos()}
@@ -405,4 +500,6 @@ const styles = StyleSheet.create({
   },
   alarmTitle: { fontSize: 22, fontWeight: "900", color: theme.colors.danger },
   alarmSubtitle: { fontSize: 12, fontWeight: "800", color: theme.colors.text2 },
+  shakeRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  shakeTitle: { fontSize: 13, fontWeight: "900", color: theme.colors.text },
 });

@@ -6,6 +6,7 @@ const KEYS = {
   favorites: "khidmaty:favorites:v1",
   sosContacts: "khidmaty:sos:contacts:v1",
   sosLastSentAt: "khidmaty:sos:lastSentAt:v1",
+  sosShakeEnabled: "khidmaty:sos:shakeEnabled:v1",
 } as const;
 
 function safeJsonParse<T>(raw: string | null): T | null {
@@ -138,5 +139,15 @@ export async function setSosLastSentAt(tsMs: number): Promise<void> {
   const v = Number(tsMs);
   if (!Number.isFinite(v) || v <= 0) return;
   await AsyncStorage.setItem(KEYS.sosLastSentAt, String(Math.trunc(v)));
+}
+
+export async function getSosShakeEnabled(): Promise<boolean> {
+  const raw = await AsyncStorage.getItem(KEYS.sosShakeEnabled).catch(() => null);
+  const v = String(raw || "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+export async function setSosShakeEnabled(enabled: boolean): Promise<void> {
+  await AsyncStorage.setItem(KEYS.sosShakeEnabled, enabled ? "1" : "0");
 }
 
