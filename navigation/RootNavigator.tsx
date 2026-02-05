@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import * as Notifications from "expo-notifications";
@@ -52,6 +52,8 @@ export function RootNavigator() {
   }, [user?.uid]);
 
   useEffect(() => {
+    if (Platform.OS === "web") return;
+
     function handleResponse(res: Notifications.NotificationResponse | null | undefined) {
       const data = (res?.notification?.request?.content?.data ?? {}) as any;
       const type = typeof data?.type === "string" ? data.type : "";
@@ -62,8 +64,8 @@ export function RootNavigator() {
       else pendingSosEventIdRef.current = eventId;
     }
 
-    const sub = Notifications.addNotificationResponseReceivedListener((res) => handleResponse(res));
-    void Notifications.getLastNotificationResponseAsync().then((res) => handleResponse(res));
+    const sub = Notifications.addNotificationResponseReceivedListener(handleResponse);
+    void Notifications.getLastNotificationResponseAsync().then(handleResponse).catch(() => null);
     return () => sub.remove();
   }, []);
 
