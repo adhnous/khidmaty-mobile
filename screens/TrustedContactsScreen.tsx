@@ -128,6 +128,14 @@ export default function TrustedContactsScreen({ navigation }: Props) {
         return;
       }
 
+      const existing = rows.find((r) => r.uid === trustedUid) || null;
+      if (existing) {
+        if (existing.status === "pending") setError("Request already pending.");
+        else if (existing.status === "accepted") setError("Already a trusted contact.");
+        else setError("This request was rejected before. Remove it first, then send a new request.");
+        return;
+      }
+
       const db = getFirestoreDb();
       if (!db) throw new Error("missing_firestore");
 
@@ -157,6 +165,11 @@ export default function TrustedContactsScreen({ navigation }: Props) {
       setIdentifier("");
       Alert.alert("Request sent", "They must accept before they can receive your SOS alerts.");
     } catch (err: any) {
+      const code = typeof err?.code === "string" ? err.code : "";
+      if (code === "permission-denied") {
+        setError("Missing or insufficient permissions. If this contact already exists, remove it first then re-send.");
+        return;
+      }
       const msg = typeof err?.message === "string" ? err.message : "Could not send request.";
       setError(msg);
     } finally {
