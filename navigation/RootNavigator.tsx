@@ -52,6 +52,27 @@ export function RootNavigator() {
   }, [user?.uid]);
 
   useEffect(() => {
+    if (Platform.OS !== "web") return;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const raw = sp.get("sosEventId") || sp.get("eventId") || "";
+      const eventId = raw.trim();
+      if (!eventId) return;
+
+      if (navRef.isReady()) navRef.navigate("IncomingSOS", { eventId });
+      else pendingSosEventIdRef.current = eventId;
+
+      sp.delete("sosEventId");
+      sp.delete("eventId");
+      const nextSearch = sp.toString();
+      const nextUrl = window.location.pathname + (nextSearch ? `?${nextSearch}` : "") + window.location.hash;
+      window.history.replaceState({}, "", nextUrl);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
     if (Platform.OS === "web") return;
 
     function handleResponse(res: Notifications.NotificationResponse | null | undefined) {

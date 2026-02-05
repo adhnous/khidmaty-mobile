@@ -24,6 +24,9 @@ This repo includes a **Trusted SOS** system:
 - `EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
 - `EXPO_PUBLIC_FIREBASE_APP_ID`
 
+For **web push notifications** (desktop/Android browsers), also set:
+- `EXPO_PUBLIC_FIREBASE_VAPID_KEY` (Firebase Console -> Cloud Messaging -> Web Push certificates)
+
 For standalone builds, also set:
 - `EXPO_PUBLIC_EAS_PROJECT_ID` (used by `expo-notifications` to generate Expo push tokens)
 
@@ -73,6 +76,7 @@ Notes:
 - Push testing must be on **physical devices**.
 - Expo Go can receive Expo push notifications; for production builds you must configure push credentials in Expo/EAS.
 - Phone numbers must include country code (e.g. `+218...` or `00...`).
+- Web push works on most desktop/Android browsers; on iOS it typically requires adding the site to the Home Screen (PWA).
 
 ## Run on iPhone (same Wi-Fi)
 
