@@ -276,20 +276,32 @@ function parseBloodTypeFromText(text: string): string | undefined {
   return normalizeBloodType(`${m[2]}${m[3]}`);
 }
 
+function stripTokenEdges(raw: string): string {
+  // Trim common punctuation around tokens without relying on Unicode property escapes
+  // (keeps it compatible with Hermes / older JS runtimes).
+  return raw.replace(/^[^a-z0-9\u0600-\u06FF+]+|[^a-z0-9\u0600-\u06FF+]+$/gi, "");
+}
+
 function looksLikeBloodDonorQuery(input: Parameters<typeof searchApi>[0]): boolean {
-  const q = String(input.q || "").trim().toLowerCase();
+  const qRaw = String(input.q || "").trim();
+  const q = qRaw.toLowerCase();
   if (!q) return false;
+
   if (parseBloodTypeFromText(q)) return true;
-  return (
-    q.includes("blood") ||
-    q.includes("donor") ||
-    q.includes("donors") ||
-    q.includes("دم") ||
-    q.includes("تبرع") ||
-    q.includes("متبرع") ||
-    q.includes("فصيلة") ||
-    q.includes("زمرة")
-  );
+
+  // English keywords.
+  if (q.includes("blood") || q.includes("donor") || q.includes("donors")) return true;
+
+  // Arabic keywords: avoid false positives like "خدمات" containing the substring "دم".
+  const tokens = q
+    .split(/\s+/)
+    .map((t) => stripTokenEdges(t))
+    .filter(Boolean);
+
+  const bloodWordTokens = new Set(["دم", "الدم", "بالدم", "للدم", "والدم", "بدم", "لدم", "ودم"]);
+  if (tokens.some((t) => bloodWordTokens.has(t))) return true;
+
+  return tokens.some((t) => t.includes("تبرع") || t.includes("متبرع") || t.includes("فصيلة") || t.includes("زمرة"));
 }
 
 const EARTH_RADIUS_KM = 6371;
