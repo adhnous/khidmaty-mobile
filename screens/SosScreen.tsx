@@ -140,9 +140,29 @@ export default function SosScreen({ navigation }: Props) {
       });
 
       const token = await user.getIdToken();
-      const res = await apiPost<{ sent?: number }>("/api/sos/send", { eventId: ref.id }, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await apiPost<{
+        sent?: number;
+        recipients?: number;
+        tokens?: number;
+        expoTokens?: number;
+        webTokens?: number;
+        errors?: number;
+      }>("/api/sos/send", { eventId: ref.id }, { headers: { Authorization: `Bearer ${token}` } });
 
-      Alert.alert("SOS sent", `Notified ${Number(res?.sent ?? 0)} trusted contact device(s).`);
+      const recipients = Number(res?.recipients ?? 0) || 0;
+      const tokens = Number(res?.tokens ?? 0) || 0;
+      const sent = Number(res?.sent ?? 0) || 0;
+
+      if (recipients <= 0) {
+        Alert.alert("No trusted contacts", "You have no accepted trusted contacts yet. Add a contact and wait for them to accept.");
+      } else if (tokens <= 0) {
+        Alert.alert(
+          "No devices to notify",
+          "Your trusted contact accepted, but they haven't enabled notifications yet. Ask them to log in and allow notifications on their phone/browser, then try again.",
+        );
+      } else {
+        Alert.alert("SOS sent", `Notified ${sent} trusted contact device(s).`);
+      }
     } catch (err: any) {
       const detail = typeof err?.detail === "string" ? err.detail.trim() : "";
       const msg = detail || (typeof err?.message === "string" ? err.message : "Could not send SOS.");
