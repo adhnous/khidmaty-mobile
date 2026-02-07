@@ -2,10 +2,12 @@ import { onCall, type CallableRequest, HttpsError } from "firebase-functions/v2/
 import { logger } from "firebase-functions";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp, type DocumentReference } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
 
 initializeApp();
 
 const db = getFirestore();
+const messaging = getMessaging();
 
 function requireAuth(request: CallableRequest<any>) {
   const uid = request.auth?.uid;
@@ -82,7 +84,45 @@ async function sendExpoPush(messages: ExpoPushMessage[]) {
     for (let i = 0; i < data.length; i += 1) {
       const r = data[i] as any;
       if (r?.status === "ok") ok += 1;
-      else errors.push({ type: "expo_error", index: i, details: r });
+      else errors.push({ type: "expo_error", token: cleanString(batch[i]?.to), details: r });
+    }
+  }
+
+  return { ok, errors };
+}
+
+async function sendFcmWebPush(input: { tokens: string[]; eventId: string }) {
+  if (input.tokens.length === 0) return { ok: 0, errors: [] as any[] };
+
+  const errors: any[] = [];
+  let ok = 0;
+
+  for (const batch of chunk(input.tokens, 500)) {
+    const res = await messaging.sendEachForMulticast({
+      tokens: batch,
+      data: {
+        type: "sos",
+        eventId: input.eventId,
+        title: "🚨 SOS Alert",
+        body: "Tap to view location",
+      },
+      webpush: {
+        headers: { Urgency: "high" },
+      },
+    });
+
+    ok += Number(res?.successCount ?? 0) || 0;
+    const responses = Array.isArray(res?.responses) ? res.responses : [];
+    for (let i = 0; i < responses.length; i += 1) {
+      const r = responses[i] as any;
+      if (r?.success) continue;
+      const err = r?.error;
+      errors.push({
+        type: "fcm_error",
+        token: batch[i],
+        code: typeof err?.code === "string" ? err.code : "",
+        message: typeof err?.message === "string" ? err.message : "",
+      });
     }
   }
 
@@ -185,27 +225,43 @@ export const sendSos = onCall(async (request) => {
   const trustedUids = contactsSnap.docs.map((d) => d.id).filter(Boolean);
 
   if (trustedUids.length === 0) {
-    return { sent: 0, recipients: 0 };
+    return { sent: 0, recipients: 0, tokens: 0, expoTokens: 0, webTokens: 0, errors: 0 };
   }
 
   const tokenDocs = await Promise.all(
     trustedUids.map(async (trustedUid) => {
       const snap = await db.collection("devices").doc(trustedUid).collection("tokens").get();
-      return snap.docs.map((d) => ({ ref: d.ref, token: cleanString(d.get("expoPushToken")) })).filter((x) => !!x.token);
+      return snap.docs
+        .map((d) => ({
+          ref: d.ref,
+          expoPushToken: cleanString(d.get("expoPushToken")),
+          webPushToken: cleanString(d.get("webPushToken")),
+        }))
+        .filter((x) => !!x.expoPushToken || !!x.webPushToken);
     }),
   );
 
-  const tokenToRefs = new Map<string, DocumentReference[]>();
+  const expoTokenToRefs = new Map<string, DocumentReference[]>();
+  const webTokenToRefs = new Map<string, DocumentReference[]>();
   for (const list of tokenDocs) {
-    for (const { token, ref } of list) {
-      const arr = tokenToRefs.get(token) || [];
-      arr.push(ref);
-      tokenToRefs.set(token, arr);
+    for (const { expoPushToken, webPushToken, ref } of list) {
+      if (expoPushToken) {
+        const arr = expoTokenToRefs.get(expoPushToken) || [];
+        arr.push(ref);
+        expoTokenToRefs.set(expoPushToken, arr);
+      }
+      if (webPushToken) {
+        const arr = webTokenToRefs.get(webPushToken) || [];
+        arr.push(ref);
+        webTokenToRefs.set(webPushToken, arr);
+      }
     }
   }
 
-  const uniqueTokens = Array.from(tokenToRefs.keys());
-  const messages: ExpoPushMessage[] = uniqueTokens.map((t) => ({
+  const expoTokens = Array.from(expoTokenToRefs.keys());
+  const webTokens = Array.from(webTokenToRefs.keys());
+
+  const messages: ExpoPushMessage[] = expoTokens.map((t) => ({
     to: t,
     title: "🚨 SOS Alert",
     body: "Tap to view location",
@@ -215,23 +271,32 @@ export const sendSos = onCall(async (request) => {
     data: { type: "sos", eventId },
   }));
 
-  const { ok, errors } = await sendExpoPush(messages);
+  const expoRes = await sendExpoPush(messages);
+  const fcmRes = await sendFcmWebPush({ tokens: webTokens, eventId });
 
   // Cleanup invalid tokens.
-  const invalidTokens = new Set<string>();
-  for (const e of errors) {
+  const invalidExpoTokens = new Set<string>();
+  for (const e of expoRes.errors) {
+    const token = cleanString(e?.token);
+    if (!token) continue;
     const r = e?.details;
     const err = typeof r?.details?.error === "string" ? r.details.error : "";
-    if (err === "DeviceNotRegistered" || err === "InvalidCredentials") {
-      const idx = Number(e?.index ?? NaN);
-      if (!Number.isFinite(idx) || idx < 0 || idx >= uniqueTokens.length) continue;
-      invalidTokens.add(uniqueTokens[idx]);
+    if (err === "DeviceNotRegistered" || err === "InvalidCredentials") invalidExpoTokens.add(token);
+  }
+
+  const invalidWebTokens = new Set<string>();
+  for (const e of fcmRes.errors) {
+    const token = cleanString(e?.token);
+    if (!token) continue;
+    const code = cleanString(e?.code);
+    if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token") {
+      invalidWebTokens.add(token);
     }
   }
 
-  if (invalidTokens.size > 0) {
+  if (invalidExpoTokens.size > 0) {
     const refs: DocumentReference[] = [];
-    for (const t of invalidTokens) refs.push(...(tokenToRefs.get(t) || []));
+    for (const t of invalidExpoTokens) refs.push(...(expoTokenToRefs.get(t) || []));
     for (const delChunk of chunk(refs, 450)) {
       const batch = db.batch();
       for (const ref of delChunk) batch.delete(ref);
@@ -239,15 +304,32 @@ export const sendSos = onCall(async (request) => {
     }
   }
 
+  if (invalidWebTokens.size > 0) {
+    const refs: DocumentReference[] = [];
+    for (const t of invalidWebTokens) refs.push(...(webTokenToRefs.get(t) || []));
+    for (const delChunk of chunk(refs, 450)) {
+      const batch = db.batch();
+      for (const ref of delChunk) batch.delete(ref);
+      await batch.commit();
+    }
+  }
+
+  const sent = expoRes.ok + fcmRes.ok;
+  const tokens = expoTokens.length + webTokens.length;
+  const errors = expoRes.errors.length + fcmRes.errors.length;
+
   logger.info("sendSos", {
     senderUid,
     eventId,
     recipients: trustedUids.length,
-    uniqueTokens: uniqueTokens.length,
-    ok,
-    errors: errors.length,
-    invalidTokens: invalidTokens.size,
+    expoTokens: expoTokens.length,
+    webTokens: webTokens.length,
+    tokens,
+    sent,
+    errors,
+    invalidExpoTokens: invalidExpoTokens.size,
+    invalidWebTokens: invalidWebTokens.size,
   });
 
-  return { sent: ok, recipients: trustedUids.length };
+  return { sent, recipients: trustedUids.length, tokens, expoTokens: expoTokens.length, webTokens: webTokens.length, errors };
 });

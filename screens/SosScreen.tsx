@@ -24,6 +24,8 @@ import { apiPost } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { startAlarm, stopAlarm } from "../lib/alarm";
 import { getFirestoreDb } from "../lib/firebase";
+import { registerDeviceForPush } from "../lib/push";
+import { isIOSWeb, isStandalonePWA } from "../lib/pwa";
 import { getSosShakeEnabled, setSosShakeEnabled } from "../lib/storage";
 import { theme } from "../lib/theme";
 
@@ -45,6 +47,11 @@ export default function SosScreen({ navigation }: Props) {
   const [locError, setLocError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+
+  const iosWeb = useMemo(() => isIOSWeb(), []);
+  const standalonePwa = useMemo(() => isStandalonePWA(), []);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
 
   const [alarmModalOpen, setAlarmModalOpen] = useState(false);
   const [alarmStarting, setAlarmStarting] = useState(false);
@@ -251,6 +258,58 @@ export default function SosScreen({ navigation }: Props) {
     void setSosShakeEnabled(next).catch(() => null);
   }
 
+  async function enableSosAlerts() {
+    setPushError(null);
+
+    if (!user?.uid) {
+      navigation.navigate("Login");
+      return;
+    }
+
+    if (Platform.OS === "web") {
+      if (iosWeb && !standalonePwa) {
+        Alert.alert(
+          "Install to Home Screen",
+          "On iPhone (iOS 16.4+), SOS notifications work only when the app is installed to the Home Screen (PWA / standalone).\n\nSteps:\n1) Open this site in Safari\n2) Tap Share\n3) Add to Home Screen\n4) Open the app from the icon\n\nThen come back and tap Enable SOS Alerts.",
+        );
+        return;
+      }
+
+      try {
+        if (typeof Notification !== "undefined" && Notification.permission === "denied") {
+          Alert.alert(
+            "Notifications blocked",
+            "Notifications are blocked for this site. Enable them in your browser settings, then try again.",
+          );
+          return;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    setPushBusy(true);
+    try {
+      const res = await registerDeviceForPush(user.uid);
+      const ok = !!(res?.expoPushToken || res?.webPushToken);
+      if (ok) {
+        Alert.alert("SOS Alerts enabled", "This device can now receive trusted SOS notifications.");
+      } else {
+        Alert.alert(
+          "Could not enable alerts",
+          Platform.OS === "web"
+            ? "This browser doesn't support web push notifications, or permission was not granted."
+            : "Notification permission was not granted.",
+        );
+      }
+    } catch (err: any) {
+      const msg = typeof err?.message === "string" ? err.message.trim() : "";
+      setPushError(msg || "Could not enable SOS alerts. Try again.");
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -298,6 +357,29 @@ export default function SosScreen({ navigation }: Props) {
             </View>
           </View>
         )}
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>SOS alerts</Text>
+          <Text style={styles.hintText}>Enable notifications on this device to receive trusted SOS alerts.</Text>
+
+          {Platform.OS === "web" && iosWeb && !standalonePwa ? (
+            <Text style={styles.errorText}>On iPhone, install to Home Screen (PWA) to enable SOS alerts.</Text>
+          ) : null}
+
+          <Pressable
+            onPress={() => void enableSosAlerts()}
+            disabled={pushBusy}
+            style={({ pressed }) => [
+              styles.primaryBtn,
+              pressed && !pushBusy && styles.primaryBtnPressed,
+              pushBusy && styles.primaryBtnDisabled,
+            ]}
+          >
+            {pushBusy ? <ActivityIndicator color="#fff" /> : null}
+            <Text style={styles.primaryBtnText}>{pushBusy ? "Enabling..." : "Enable SOS Alerts"}</Text>
+          </Pressable>
+          {pushError ? <Text style={styles.errorText}>{pushError}</Text> : null}
+        </View>
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Location</Text>
@@ -461,6 +543,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   primaryBtnPressed: { opacity: 0.92 },
+  primaryBtnDisabled: { opacity: 0.7 },
   primaryBtnText: { color: "#fff", fontSize: 13, fontWeight: "900" },
   secondaryBtn: {
     height: 44,

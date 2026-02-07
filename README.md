@@ -27,6 +27,11 @@ This repo includes a **Trusted SOS** system:
 For **web push notifications** (desktop/Android browsers), also set:
 - `EXPO_PUBLIC_FIREBASE_VAPID_KEY` (Firebase Console -> Cloud Messaging -> Web Push certificates)
 
+Web push notes (important):
+- Android/desktop browsers: works normally once the user taps **Enable SOS Alerts** in-app and allows notifications.
+- iPhone (iOS 16.4+): web push works **only** when the site is installed to the Home Screen (PWA / standalone). It is **not expected** to work from a normal Safari tab.
+- For best reliability at scale (e.g. 1000+ users), ship the **native** iOS/Android app (TestFlight/App Store / Play Store). Web is still useful as a fallback.
+
 For standalone builds, also set:
 - `EXPO_PUBLIC_EAS_PROJECT_ID` (used by `expo-notifications` to generate Expo push tokens)
 
@@ -65,18 +70,30 @@ If your backend is deployed on Vercel (recommended when Firebase is on Spark), s
 
 ### Test checklist (2 real phones)
 
-1) Phone A: Register + login, allow notifications.
-2) Phone B: Register + login, allow notifications.
+Native (recommended):
+1) Phone A: Register + login, allow notifications (or tap `SOS` -> `Enable SOS Alerts`).
+2) Phone B: Register + login, allow notifications (or tap `SOS` -> `Enable SOS Alerts`).
 3) Phone A: `Trusted Contacts` -> add Phone B email or phone (sends request).
 4) Phone B: `Incoming Requests` -> Accept.
 5) Phone A: `SOS` -> `Use Location` -> `Send SOS to Trusted Contacts`.
 6) Phone B: tap the push notification -> Incoming SOS screen opens, siren plays until `Stop Alarm`.
 
+Web (supported browsers):
+1) Android Chrome (or desktop Chrome): open the web app, login.
+2) Go to `SOS` -> tap `Enable SOS Alerts` -> allow notifications.
+3) Send SOS from another trusted account -> verify the web browser receives a push and tapping it opens the Incoming SOS screen.
+
+iPhone web (PWA / standalone):
+1) Open the web app in **Safari** (tab) -> `SOS` -> it should show “Install to Home Screen to enable SOS alerts” and **must not** prompt for notification permission.
+2) Safari -> Share -> **Add to Home Screen**.
+3) Open from the Home Screen icon (standalone) -> `SOS` -> tap `Enable SOS Alerts` -> allow notifications.
+4) Send SOS from another trusted account -> verify push is received and tapping opens Incoming SOS screen.
+
 Notes:
 - Push testing must be on **physical devices**.
 - Expo Go can receive Expo push notifications; for production builds you must configure push credentials in Expo/EAS.
 - Phone numbers must include country code (e.g. `+218...` or `00...`).
-- Web push works on most desktop/Android browsers; on iOS it typically requires adding the site to the Home Screen (PWA).
+- Web push works on most desktop/Android browsers; on iOS it works only on iOS 16.4+ and only in Home Screen installed PWAs (not in a normal Safari tab).
 
 ## Run on iPhone (same Wi-Fi)
 

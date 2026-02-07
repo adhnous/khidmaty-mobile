@@ -48,6 +48,8 @@ export function RootNavigator() {
 
   useEffect(() => {
     if (!user?.uid) return;
+    // Web permission prompts must be triggered by user gesture; do not auto-register on login.
+    if (Platform.OS === "web") return;
     void registerDeviceForPush(user.uid).catch(() => null);
   }, [user?.uid]);
 

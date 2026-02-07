@@ -4,6 +4,7 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { getFirebaseClient, getFirestoreDb } from "./firebase";
+import { isIOSWeb, isStandalonePWA } from "./pwa";
 import { ensureDeviceId } from "./storage";
 
 function cleanString(v: unknown): string {
@@ -76,6 +77,10 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
 
   if (!("Notification" in window)) return {};
   if (!("serviceWorker" in navigator)) return {};
+
+  // iOS web push is only meaningful in standalone "Add to Home Screen" PWAs.
+  // In a normal Safari tab, avoid prompting since it won't work reliably.
+  if (isIOSWeb() && !isStandalonePWA()) return {};
 
   let supported = true;
   try {
