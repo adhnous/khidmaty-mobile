@@ -11,6 +11,11 @@ function cleanString(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+function cleanCompactString(v: unknown): string {
+  const s = cleanString(v);
+  return s ? s.replace(/\s+/g, "") : "";
+}
+
 let webOnMessageAttached = false;
 
 async function attachWebOnMessageListener(input: { messaging: any; swReg: any }) {
@@ -69,7 +74,13 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
   const client = getFirebaseClient();
   if (!client) return {};
 
-  const vapidKey = cleanString(process.env.EXPO_PUBLIC_FIREBASE_VAPID_KEY);
+  let vapidKey = cleanCompactString(process.env.EXPO_PUBLIC_FIREBASE_VAPID_KEY);
+  if (
+    (vapidKey.startsWith('"') && vapidKey.endsWith('"')) ||
+    (vapidKey.startsWith("'") && vapidKey.endsWith("'"))
+  ) {
+    vapidKey = cleanCompactString(vapidKey.slice(1, -1));
+  }
   if (!vapidKey) throw new Error("Web push disabled: missing EXPO_PUBLIC_FIREBASE_VAPID_KEY.");
 
   if (!("Notification" in window)) throw new Error("Notifications are not supported in this browser.");
@@ -117,6 +128,13 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
     throw new Error("Could not register service worker for web push.");
   }
 
+  try {
+    const ready = await navigator.serviceWorker.ready;
+    if (ready) swReg = ready;
+  } catch {
+    // ignore; continue with registration returned above
+  }
+
   let token = "";
   let messaging: any = null;
   try {
@@ -128,7 +146,12 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
         serviceWorkerRegistration: swReg,
       }),
     );
-  } catch {
+  } catch (err: any) {
+    const code = cleanString(err?.code);
+    const msg = cleanString(err?.message);
+    console.warn("[push] getToken failed", { code, msg });
+    if (code) throw new Error(`Could not get web push token (${code}).`);
+    if (msg) throw new Error(`Could not get web push token: ${msg}`);
     throw new Error("Could not get web push token.");
   }
   if (!token) return {};
