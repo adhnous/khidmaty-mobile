@@ -70,17 +70,36 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
   if (!client) return {};
 
   const vapidKey = cleanString(process.env.EXPO_PUBLIC_FIREBASE_VAPID_KEY);
-  if (!vapidKey) {
-    console.warn("Web push disabled: missing EXPO_PUBLIC_FIREBASE_VAPID_KEY.");
-    return {};
-  }
+  if (!vapidKey) throw new Error("Web push disabled: missing EXPO_PUBLIC_FIREBASE_VAPID_KEY.");
 
-  if (!("Notification" in window)) return {};
-  if (!("serviceWorker" in navigator)) return {};
+  if (!("Notification" in window)) throw new Error("Notifications are not supported in this browser.");
+  if (!("serviceWorker" in navigator)) throw new Error("Service Workers are not supported in this browser.");
 
   // iOS web push is only meaningful in standalone "Add to Home Screen" PWAs.
   // In a normal Safari tab, avoid prompting since it won't work reliably.
-  if (isIOSWeb() && !isStandalonePWA()) return {};
+  if (isIOSWeb() && !isStandalonePWA()) {
+    throw new Error("On iPhone, install to Home Screen (PWA) to enable SOS alerts.");
+  }
+
+  // Permission prompt must be triggered by a user gesture.
+  // Call requestPermission before any awaits (like dynamic imports) to avoid browsers blocking it.
+  let permission: NotificationPermission = "default";
+  try {
+    permission = Notification.permission;
+  } catch {
+    // ignore
+  }
+  if (permission === "denied") {
+    throw new Error("Notifications are blocked for this site. Enable them in browser settings and try again.");
+  }
+  if (permission !== "granted") {
+    try {
+      permission = await Notification.requestPermission();
+    } catch {
+      throw new Error("Could not request notification permission.");
+    }
+  }
+  if (permission !== "granted") throw new Error("Notification permission was not granted.");
 
   let supported = true;
   try {
@@ -89,16 +108,13 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
   } catch {
     supported = false;
   }
-  if (!supported) return {};
-
-  const permission = await Notification.requestPermission();
-  if (permission !== "granted") return {};
+  if (!supported) throw new Error("Web push is not supported in this browser.");
 
   let swReg: any = null;
   try {
     swReg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
   } catch {
-    return {};
+    throw new Error("Could not register service worker for web push.");
   }
 
   let token = "";
@@ -113,7 +129,7 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
       }),
     );
   } catch {
-    return {};
+    throw new Error("Could not get web push token.");
   }
   if (!token) return {};
 
