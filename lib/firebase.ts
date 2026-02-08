@@ -12,7 +12,11 @@ let cached: FirebaseClient | null = null;
 let warnedMissingConfig = false;
 
 function cleanEnv(v: unknown): string {
-  return typeof v === "string" ? v.trim() : "";
+  let s = typeof v === "string" ? v.trim() : "";
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
 }
 
 function getFirebaseOptions(): FirebaseOptions | null {

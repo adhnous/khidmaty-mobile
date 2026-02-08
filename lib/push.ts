@@ -149,7 +149,19 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
   } catch (err: any) {
     const code = cleanString(err?.code);
     const msg = cleanString(err?.message);
-    console.warn("[push] getToken failed", { code, msg });
+    const serverResponse = cleanString(err?.customData?.serverResponse);
+    console.warn("[push] getToken failed", { code, msg, serverResponse });
+
+    const lower = `${code} ${msg} ${serverResponse}`.toLowerCase();
+    if (
+      code === "messaging/token-subscribe-failed" ||
+      lower.includes("fcmregistrations") ||
+      lower.includes("unauthenticated")
+    ) {
+      throw new Error(
+        "Could not get web push token. Firebase rejected the subscription request. Check that Firebase Installations API + Firebase Cloud Messaging API are enabled, and that your Firebase Web API key is allowed for this domain.",
+      );
+    }
     if (code) throw new Error(`Could not get web push token (${code}).`);
     if (msg) throw new Error(`Could not get web push token: ${msg}`);
     throw new Error("Could not get web push token.");
