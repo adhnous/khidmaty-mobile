@@ -1,6 +1,4 @@
 import Constants from "expo-constants";
-import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { getFirebaseClient, getFirestoreDb } from "./firebase";
@@ -11,9 +9,9 @@ function cleanString(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-function cleanCompactString(v: unknown): string {
-  const s = cleanString(v);
-  return s ? s.replace(/\s+/g, "") : "";
+function cleanKey(v: unknown): string {
+  // Keys should never contain whitespace, but copy/paste can introduce it.
+  return cleanString(v).replace(/\s+/g, "");
 }
 
 let webOnMessageAttached = false;
@@ -66,6 +64,47 @@ async function attachWebOnMessageListener(input: { messaging: any; swReg: any })
   }
 }
 
+function describeWebTokenError(err: any, ctx: { origin?: string; projectId?: string } = {}): string {
+  const code = cleanString(err?.code);
+  const msg = cleanString(err?.message);
+  const serverResponse = cleanString(err?.customData?.serverResponse);
+
+  const base = msg || serverResponse || "Could not get web push token.";
+  const lower = `${code} ${base} ${serverResponse}`.toLowerCase();
+
+  // Common (and confusing) auth error from the FCM registrations API.
+  if (lower.includes("missing required authentication credential") || lower.includes("unauthenticated")) {
+    const origin = cleanString(ctx.origin);
+    const originHint = origin ? ` Current origin: ${origin}.` : "";
+    const pid = cleanString(ctx.projectId);
+    const pidHint = pid ? ` Firebase projectId: ${pid}.` : "";
+    return (
+      `${base} Verify your Firebase Web config (apiKey/appId/projectId) and VAPID key are from the same Firebase project, ` +
+      `and that the Web API key isn't restricted (HTTP referrers / API restrictions). Then redeploy and clear site data.` +
+      `${originHint}${pidHint}${code ? ` (${code})` : ""}`
+    );
+  }
+
+  // Keep a single, user-friendly message for common Firebase Messaging failures.
+  if (
+    code === "messaging/token-subscribe-failed" ||
+    lower.includes("fcmregistrations") ||
+    lower.includes("token-subscribe-failed")
+  ) {
+    const origin = cleanString(ctx.origin);
+    const originHint = origin ? ` (origin: ${origin})` : "";
+    return (
+      "Could not get web push token. Firebase rejected the subscription request. " +
+      "Check that Firebase Installations API + Firebase Cloud Messaging API are enabled, " +
+      "and that your Firebase Web API key is allowed for this domain." +
+      originHint +
+      (code ? ` (${code})` : "")
+    );
+  }
+
+  return code ? `${base} (${code})` : base;
+}
+
 async function registerWebForPush(uid: string): Promise<{ webPushToken?: string }> {
   if (!uid) throw new Error("missing_uid");
   if (Platform.OS !== "web") return {};
@@ -74,17 +113,21 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
   const client = getFirebaseClient();
   if (!client) return {};
 
-  let vapidKey = cleanCompactString(process.env.EXPO_PUBLIC_FIREBASE_VAPID_KEY);
-  if (
-    (vapidKey.startsWith('"') && vapidKey.endsWith('"')) ||
-    (vapidKey.startsWith("'") && vapidKey.endsWith("'"))
-  ) {
-    vapidKey = cleanCompactString(vapidKey.slice(1, -1));
+  let vapidKey = cleanKey(process.env.EXPO_PUBLIC_FIREBASE_VAPID_KEY);
+  if ((vapidKey.startsWith('"') && vapidKey.endsWith('"')) || (vapidKey.startsWith("'") && vapidKey.endsWith("'"))) {
+    vapidKey = cleanKey(vapidKey.slice(1, -1));
   }
   if (!vapidKey) throw new Error("Web push disabled: missing EXPO_PUBLIC_FIREBASE_VAPID_KEY.");
 
   if (!("Notification" in window)) throw new Error("Notifications are not supported in this browser.");
   if (!("serviceWorker" in navigator)) throw new Error("Service Workers are not supported in this browser.");
+
+  const isLocalhost =
+    window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname === "[::1]";
+  const isSecureContext = typeof window.isSecureContext === "boolean" ? window.isSecureContext : window.location.protocol === "https:";
+  if (!isSecureContext && !isLocalhost) {
+    throw new Error("Web push requires HTTPS (secure context).");
+  }
 
   // iOS web push is only meaningful in standalone "Add to Home Screen" PWAs.
   // In a normal Safari tab, avoid prompting since it won't work reliably.
@@ -140,31 +183,25 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
   try {
     const mod = await import("firebase/messaging");
     messaging = mod.getMessaging(client.app);
-    token = cleanString(
-      await mod.getToken(messaging, {
-        vapidKey,
-        serviceWorkerRegistration: swReg,
-      }),
-    );
+    token = cleanString(await mod.getToken(messaging, { vapidKey, serviceWorkerRegistration: swReg }));
   } catch (err: any) {
     const code = cleanString(err?.code);
     const msg = cleanString(err?.message);
     const serverResponse = cleanString(err?.customData?.serverResponse);
     console.warn("[push] getToken failed", { code, msg, serverResponse });
 
-    const lower = `${code} ${msg} ${serverResponse}`.toLowerCase();
-    if (
-      code === "messaging/token-subscribe-failed" ||
-      lower.includes("fcmregistrations") ||
-      lower.includes("unauthenticated")
-    ) {
-      throw new Error(
-        "Could not get web push token. Firebase rejected the subscription request. Check that Firebase Installations API + Firebase Cloud Messaging API are enabled, and that your Firebase Web API key is allowed for this domain.",
-      );
-    }
-    if (code) throw new Error(`Could not get web push token (${code}).`);
-    if (msg) throw new Error(`Could not get web push token: ${msg}`);
-    throw new Error("Could not get web push token.");
+    const origin = (() => {
+      try {
+        return typeof window !== "undefined" ? window.location.origin : "";
+      } catch {
+        return "";
+      }
+    })();
+    const projectId = cleanString((client.app.options as any)?.projectId);
+
+    const e: any = new Error(describeWebTokenError(err, { origin, projectId }));
+    if (code) e.code = code;
+    throw e;
   }
   if (!token) return {};
 
@@ -200,6 +237,7 @@ function getProjectId(): string | null {
 export async function configureSosNotificationChannel() {
   if (Platform.OS !== "android") return;
   try {
+    const Notifications = await import("expo-notifications");
     await Notifications.setNotificationChannelAsync("sos", {
       name: "SOS",
       importance: Notifications.AndroidImportance.MAX,
@@ -215,10 +253,12 @@ export async function configureSosNotificationChannel() {
 export async function registerDeviceForPush(uid: string): Promise<{ expoPushToken?: string; webPushToken?: string }> {
   if (!uid) throw new Error("missing_uid");
   if (Platform.OS === "web") return await registerWebForPush(uid);
+  const Device = await import("expo-device");
   if (!Device.isDevice) return {};
 
   await configureSosNotificationChannel();
 
+  const Notifications = await import("expo-notifications");
   const perms = await Notifications.getPermissionsAsync();
   let status = perms.status;
   if (status !== "granted") {

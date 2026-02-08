@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { NavigationContainer, createNavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import * as Notifications from "expo-notifications";
+import type * as ExpoNotifications from "expo-notifications";
 import SearchChatScreen from "../screens/SearchChatScreen";
 import ListingDetailScreen from "../screens/ListingDetailScreen";
 import HistoryScreen from "../screens/HistoryScreen";
@@ -77,19 +77,36 @@ export function RootNavigator() {
   useEffect(() => {
     if (Platform.OS === "web") return;
 
-    function handleResponse(res: Notifications.NotificationResponse | null | undefined) {
-      const data = (res?.notification?.request?.content?.data ?? {}) as any;
-      const type = typeof data?.type === "string" ? data.type : "";
-      const eventId = typeof data?.eventId === "string" ? data.eventId.trim() : "";
-      if (type !== "sos" || !eventId) return;
+    let cancelled = false;
+    let sub: { remove: () => void } | null = null;
 
-      if (navRef.isReady()) navRef.navigate("IncomingSOS", { eventId });
-      else pendingSosEventIdRef.current = eventId;
-    }
+    void (async () => {
+      // Avoid importing `expo-notifications` on web (it logs warnings + does extra work).
+      const Notifications = await import("expo-notifications");
+      if (cancelled) return;
 
-    const sub = Notifications.addNotificationResponseReceivedListener(handleResponse);
-    void Notifications.getLastNotificationResponseAsync().then(handleResponse).catch(() => null);
-    return () => sub.remove();
+      function handleResponse(res: ExpoNotifications.NotificationResponse | null | undefined) {
+        const data = (res?.notification?.request?.content?.data ?? {}) as any;
+        const type = typeof data?.type === "string" ? data.type : "";
+        const eventId = typeof data?.eventId === "string" ? data.eventId.trim() : "";
+        if (type !== "sos" || !eventId) return;
+
+        if (navRef.isReady()) navRef.navigate("IncomingSOS", { eventId });
+        else pendingSosEventIdRef.current = eventId;
+      }
+
+      sub = Notifications.addNotificationResponseReceivedListener(handleResponse);
+      void Notifications.getLastNotificationResponseAsync().then(handleResponse).catch(() => null);
+    })().catch(() => null);
+
+    return () => {
+      cancelled = true;
+      try {
+        sub?.remove();
+      } catch {
+        // ignore
+      }
+    };
   }, []);
 
   return (

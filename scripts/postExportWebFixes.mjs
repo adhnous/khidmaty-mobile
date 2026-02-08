@@ -80,7 +80,18 @@ function getEnvValue(key, dotEnvMap) {
   const fromProcess = cleanString(process.env[key]);
   if (fromProcess) return fromProcess;
   const fromFile = cleanString(dotEnvMap?.[key]);
-  return fromFile || "";
+  if (fromFile) return fromFile;
+
+  // Monorepo compatibility: allow NEXT_PUBLIC_* to back-fill EXPO_PUBLIC_*.
+  if (key.startsWith("EXPO_PUBLIC_")) {
+    const nextKey = key.replace(/^EXPO_PUBLIC_/, "NEXT_PUBLIC_");
+    const nextFromProcess = cleanString(process.env[nextKey]);
+    if (nextFromProcess) return nextFromProcess;
+    const nextFromFile = cleanString(dotEnvMap?.[nextKey]);
+    if (nextFromFile) return nextFromFile;
+  }
+
+  return "";
 }
 
 function writeFirebaseMessagingServiceWorker({ dotEnvMap }) {
@@ -158,6 +169,38 @@ self.addEventListener("notificationclick", (event) => {
   fs.writeFileSync(swPath, sw, "utf8");
 }
 
+function validateFirebaseConfigInExport({ dotEnvMap }) {
+  const projectId = getEnvValue("EXPO_PUBLIC_FIREBASE_PROJECT_ID", dotEnvMap);
+  const messagingSenderId = getEnvValue("EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", dotEnvMap);
+  const appId = getEnvValue("EXPO_PUBLIC_FIREBASE_APP_ID", dotEnvMap);
+  if (!projectId || !messagingSenderId || !appId) return;
+
+  try {
+    const jsDir = path.join(distDir, "_expo", "static", "js", "web");
+    if (!fs.existsSync(jsDir)) return;
+
+    const entries = fs.readdirSync(jsDir);
+    const appEntry = entries.find((n) => /^AppEntry-[a-f0-9]+\.js$/.test(n));
+    if (!appEntry) return;
+
+    const text = fs.readFileSync(path.join(jsDir, appEntry), "utf8");
+    const missing = [];
+    if (!text.includes(projectId)) missing.push("projectId");
+    if (!text.includes(messagingSenderId)) missing.push("messagingSenderId");
+    if (!text.includes(appId)) missing.push("appId");
+
+    if (missing.length > 0) {
+      console.warn(
+        `postExportWebFixes: Firebase config may be out of sync with the exported bundle (${missing.join(
+          ", ",
+        )} not found in ${appEntry}). Ensure EXPO_PUBLIC_FIREBASE_* env vars are set before running expo export.`,
+      );
+    }
+  } catch (err) {
+    console.warn("postExportWebFixes: failed to validate Firebase config in export:", err?.message || err);
+  }
+}
+
 function main() {
   if (!fs.existsSync(distDir)) {
     console.error(`dist folder not found: ${distDir}`);
@@ -228,6 +271,9 @@ function main() {
   } catch (err) {
     console.warn("postExportWebFixes: failed to write firebase-messaging-sw.js:", err?.message || err);
   }
+
+  // Warn if the exported JS bundle doesn't contain the expected Firebase config.
+  validateFirebaseConfigInExport({ dotEnvMap });
 
   console.log(`postExportWebFixes: rewrote ${changed} JS file(s)`);
 }
