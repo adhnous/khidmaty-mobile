@@ -54,7 +54,9 @@ function sha256Hex(buf) {
 }
 
 function cleanString(v) {
-  return typeof v === "string" ? v.trim() : "";
+  const s = typeof v === "string" ? v : "";
+  if (!s) return "";
+  return s.replace(/\\r/g, "\r").replace(/\\n/g, "\n").trim();
 }
 
 function parseDotEnv(text) {

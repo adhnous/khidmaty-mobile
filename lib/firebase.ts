@@ -19,11 +19,15 @@ function cleanString(v: unknown): string {
 function cleanEnv(v: unknown): string {
   let s = cleanString(v);
   if (!s) return "";
+  // Some platforms/tools store newlines as literal escape sequences.
+  // Normalize them so `trim()` removes them.
+  s = s.replace(/\\r/g, "\r").replace(/\\n/g, "\n").trim();
   const lower = s.toLowerCase();
   if (lower === "undefined" || lower === "null") return "";
   if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
     s = s.slice(1, -1).trim();
   }
+  s = s.replace(/\\r/g, "\r").replace(/\\n/g, "\n").trim();
   return s;
 }
 
@@ -60,7 +64,10 @@ function getFirebaseOptions(): FirebaseOptions | null {
     if (authDomain.endsWith(".firebaseapp.com") && !authDomain.startsWith(`${projectId}.`)) {
       suspicious.push(`authDomain (${authDomain}) doesn't match projectId (${projectId})`);
     }
-    if (storageBucket.endsWith(".appspot.com") && !storageBucket.startsWith(`${projectId}.`)) {
+    if (
+      (storageBucket.endsWith(".appspot.com") || storageBucket.endsWith(".firebasestorage.app")) &&
+      !storageBucket.startsWith(`${projectId}.`)
+    ) {
       suspicious.push(`storageBucket (${storageBucket}) doesn't match projectId (${projectId})`);
     }
 

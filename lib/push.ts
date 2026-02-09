@@ -11,7 +11,7 @@ function cleanString(v: unknown): string {
 
 function cleanKey(v: unknown): string {
   // Keys should never contain whitespace, but copy/paste can introduce it.
-  return cleanString(v).replace(/\s+/g, "");
+  return cleanString(v).replace(/\\r/g, "").replace(/\\n/g, "").replace(/\s+/g, "");
 }
 
 let webOnMessageAttached = false;
@@ -183,7 +183,27 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
   try {
     const mod = await import("firebase/messaging");
     messaging = mod.getMessaging(client.app);
-    token = cleanString(await mod.getToken(messaging, { vapidKey, serviceWorkerRegistration: swReg }));
+    const opts: any = { serviceWorkerRegistration: swReg };
+
+    // Prefer a project-specific VAPID key when provided, but allow fallback to
+    // Firebase's default key (helps debug misconfigured keys / copy issues).
+    if (vapidKey) {
+      try {
+        token = cleanString(await mod.getToken(messaging, { ...opts, vapidKey }));
+      } catch (err: any) {
+        try {
+          token = cleanString(await mod.getToken(messaging, opts));
+          console.warn("[push] Web push token: custom VAPID key failed; fell back to default.", {
+            code: cleanString(err?.code),
+            msg: cleanString(err?.message),
+          });
+        } catch {
+          throw err;
+        }
+      }
+    } else {
+      token = cleanString(await mod.getToken(messaging, opts));
+    }
   } catch (err: any) {
     const code = cleanString(err?.code);
     const msg = cleanString(err?.message);
