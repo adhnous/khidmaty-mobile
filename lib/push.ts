@@ -14,6 +14,97 @@ function cleanKey(v: unknown): string {
   return cleanString(v).replace(/\\r/g, "").replace(/\\n/g, "").replace(/\s+/g, "");
 }
 
+function base64UrlEncodeBytes(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  // btoa exists on web; this code path is only used on web.
+  return btoa(bin).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function base64UrlDecodeToBytes(base64Url: string): Uint8Array {
+  const s = cleanKey(base64Url);
+  const padded = s + "=".repeat((4 - (s.length % 4)) % 4);
+  const base64 = padded.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(base64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function getPushSubscriptionKey(sub: any, name: "auth" | "p256dh"): string {
+  try {
+    const buf = sub?.getKey?.(name);
+    if (!buf) return "";
+    return base64UrlEncodeBytes(new Uint8Array(buf));
+  } catch {
+    return "";
+  }
+}
+
+async function manualFcmRegistration(input: { app: any; swReg: any; vapidKey: string }): Promise<string> {
+  const projectId = cleanString(input?.app?.options?.projectId);
+  const apiKey = cleanString(input?.app?.options?.apiKey);
+  if (!projectId || !apiKey) throw new Error("missing_firebase_web_config");
+
+  let sub = null as any;
+  try {
+    sub = await input?.swReg?.pushManager?.getSubscription?.();
+  } catch {
+    sub = null;
+  }
+  if (!sub) {
+    try {
+      const keyBytes = base64UrlDecodeToBytes(input.vapidKey);
+      sub = await input?.swReg?.pushManager?.subscribe?.({ userVisibleOnly: true, applicationServerKey: keyBytes });
+    } catch {
+      sub = null;
+    }
+  }
+  if (!sub) throw new Error("missing_push_subscription");
+
+  const endpoint = cleanString(sub?.endpoint);
+  const auth = getPushSubscriptionKey(sub, "auth");
+  const p256dh = getPushSubscriptionKey(sub, "p256dh");
+  if (!endpoint || !auth || !p256dh) throw new Error("missing_push_subscription_keys");
+
+  const body: any = { web: { endpoint, auth, p256dh } };
+  const vapidKey = cleanKey(input.vapidKey);
+  if (vapidKey) body.web.applicationPubKey = vapidKey;
+
+  const inst = await import("firebase/installations");
+  const installations = inst.getInstallations(input.app);
+  const fisToken = cleanString(await inst.getToken(installations, true));
+  if (!fisToken) throw new Error("missing_firebase_installations_auth_token");
+
+  const url = `https://fcmregistrations.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/registrations`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+      "x-goog-api-key": apiKey,
+      "x-goog-firebase-installations-auth": `FIS ${fisToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  let json: any = null;
+  try {
+    json = await res.json();
+  } catch {
+    json = null;
+  }
+
+  const token = cleanString(json?.token);
+  if (res.ok && token) return token;
+
+  const msg = cleanString(json?.error?.message) || `HTTP ${res.status}`;
+  const err: any = new Error(`manual_fcmregistrations_failed: ${msg}`);
+  err.status = res.status;
+  err.serverResponse = json;
+  throw err;
+}
+
 function isFcmRegistrationsAuthError(err: any): boolean {
   const code = cleanString(err?.code).toLowerCase();
   const msg = cleanString(err?.message).toLowerCase();
@@ -257,7 +348,21 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
         msg: cleanString(err?.message),
       });
       await repairWebPushState({ app: client.app, messaging, swReg });
-      token = await getTokenOnce();
+
+      try {
+        token = await getTokenOnce();
+      } catch (err2: any) {
+        if (!isFcmRegistrationsAuthError(err2)) throw err2;
+
+        // Some environments appear to send the Installations auth header in a way
+        // that fcmregistrations rejects (still 401 after repairs). As a last resort,
+        // call the registrations API directly and store the returned token.
+        console.warn("[push] Web push token: retry still unauthenticated; attempting manual fcmregistrations.", {
+          code: cleanString(err2?.code),
+          msg: cleanString(err2?.message),
+        });
+        token = await manualFcmRegistration({ app: client.app, swReg, vapidKey });
+      }
     }
   } catch (err: any) {
     const code = cleanString(err?.code);
