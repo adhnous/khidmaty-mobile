@@ -13,11 +13,15 @@ function clean(v: unknown): string {
 }
 
 export default function LoginScreen({ navigation }: Props) {
-  const { login, loginWithGoogle } = useAuth();
+  const { user, login, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user) navigation.goBack();
+  }, [navigation, user]);
 
   useEffect(() => {
     let alive = true;

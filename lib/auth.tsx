@@ -7,10 +7,11 @@ import type { User } from "firebase/auth";
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
+  getRedirectResult,
   onAuthStateChanged,
   signInWithCredential,
   signInWithEmailAndPassword,
-  signInWithPopup,
+  signInWithRedirect,
   signOut,
 } from "firebase/auth";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
@@ -155,6 +156,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setInitializing(false);
       return;
     }
+
+    if (Platform.OS === "web") {
+      void getRedirectResult(auth)
+        .then((cred) => {
+          const em = cleanString(cred?.user?.email);
+          if (cred?.user?.uid && em) return touchUserDoc(cred.user.uid, { email: em });
+          return;
+        })
+        .catch(() => null);
+    }
+
     const unsub = onAuthStateChanged(auth, (next) => {
       setUser(next);
       setInitializing(false);
@@ -179,12 +191,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const auth = getFirebaseAuth();
         if (!auth) throw new Error("missing_auth");
 
-        // Web can use Firebase popup auth directly.
+        // Use redirect auth on web to avoid popup/COOP issues on modern browsers.
         if (Platform.OS === "web") {
           const provider = new GoogleAuthProvider();
-          const cred = await signInWithPopup(auth, provider);
-          const em = cleanString(cred.user.email);
-          if (cred.user.uid && em) await touchUserDoc(cred.user.uid, { email: em }).catch(() => null);
+          await signInWithRedirect(auth, provider);
           return;
         }
 
