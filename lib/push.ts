@@ -14,6 +14,42 @@ function cleanKey(v: unknown): string {
   return cleanString(v).replace(/\\r/g, "").replace(/\\n/g, "").replace(/\s+/g, "");
 }
 
+function isFcmRegistrationsAuthError(err: any): boolean {
+  const code = cleanString(err?.code).toLowerCase();
+  const msg = cleanString(err?.message).toLowerCase();
+  const serverResponse = cleanString(err?.customData?.serverResponse).toLowerCase();
+
+  if (code && !code.includes("token-subscribe-failed")) return false;
+
+  const hay = `${msg} ${serverResponse}`;
+  return hay.includes("missing required authentication credential") || hay.includes("unauthenticated");
+}
+
+async function repairWebPushState(input: { app: any; messaging: any; swReg: any }) {
+  // Best-effort cleanup. This targets the most common cause of the confusing
+  // fcmregistrations 401: a corrupted/blocked Firebase Installation state in the browser.
+  try {
+    const sub = await input?.swReg?.pushManager?.getSubscription?.();
+    await sub?.unsubscribe?.();
+  } catch {
+    // ignore
+  }
+
+  try {
+    const inst = await import("firebase/installations");
+    await inst.deleteInstallations(inst.getInstallations(input.app));
+  } catch {
+    // ignore
+  }
+
+  try {
+    const mod = await import("firebase/messaging");
+    await mod.deleteToken(input.messaging);
+  } catch {
+    // ignore
+  }
+}
+
 let webOnMessageAttached = false;
 
 async function attachWebOnMessageListener(input: { messaging: any; swReg: any }) {
@@ -185,24 +221,43 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
     messaging = mod.getMessaging(client.app);
     const opts: any = { serviceWorkerRegistration: swReg };
 
-    // Prefer a project-specific VAPID key when provided, but allow fallback to
-    // Firebase's default key (helps debug misconfigured keys / copy issues).
-    if (vapidKey) {
-      try {
-        token = cleanString(await mod.getToken(messaging, { ...opts, vapidKey }));
-      } catch (err: any) {
+    const getTokenOnce = async () => {
+      // Prefer a project-specific VAPID key when provided, but allow fallback to
+      // Firebase's default key (helps debug misconfigured keys / copy issues).
+      if (vapidKey) {
         try {
-          token = cleanString(await mod.getToken(messaging, opts));
-          console.warn("[push] Web push token: custom VAPID key failed; fell back to default.", {
-            code: cleanString(err?.code),
-            msg: cleanString(err?.message),
-          });
-        } catch {
-          throw err;
+          return cleanString(await mod.getToken(messaging, { ...opts, vapidKey }));
+        } catch (err: any) {
+          try {
+            const t = cleanString(await mod.getToken(messaging, opts));
+            console.warn("[push] Web push token: custom VAPID key failed; fell back to default.", {
+              code: cleanString(err?.code),
+              msg: cleanString(err?.message),
+            });
+            return t;
+          } catch {
+            throw err;
+          }
         }
       }
-    } else {
-      token = cleanString(await mod.getToken(messaging, opts));
+      return cleanString(await mod.getToken(messaging, opts));
+    };
+
+    // Prefer a project-specific VAPID key when provided, but allow fallback to
+    // Firebase's default key (helps debug misconfigured keys / copy issues).
+    try {
+      token = await getTokenOnce();
+    } catch (err: any) {
+      if (!isFcmRegistrationsAuthError(err)) throw err;
+
+      // If fcmregistrations rejects the request with a 401, try resetting the local
+      // Firebase Installation + push subscription state and retry once.
+      console.warn("[push] Web push token: fcmregistrations unauthenticated; repairing and retrying once.", {
+        code: cleanString(err?.code),
+        msg: cleanString(err?.message),
+      });
+      await repairWebPushState({ app: client.app, messaging, swReg });
+      token = await getTokenOnce();
     }
   } catch (err: any) {
     const code = cleanString(err?.code);
