@@ -22,6 +22,8 @@ import { normalizeEmail } from "./identifiers";
 type AuthContextValue = {
   user: User | null;
   initializing: boolean;
+  authError: string | null;
+  clearAuthError: () => void;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   register: (email: string, password: string, phone?: string | null) => Promise<void>;
@@ -149,6 +151,7 @@ async function touchUserDoc(uid: string, input: { email: string }) {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [initializing, setInitializing] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -164,11 +167,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (cred?.user?.uid && em) return touchUserDoc(cred.user.uid, { email: em });
           return;
         })
-        .catch(() => null);
+        .catch((err: any) => {
+          const code = cleanString(err?.code);
+          const message = cleanString(err?.message);
+          console.warn("[auth] getRedirectResult failed", { code, message });
+          setAuthError(code ? `${code}${message ? `: ${message}` : ""}` : message || "Google Sign-In failed.");
+        });
     }
 
     const unsub = onAuthStateChanged(auth, (next) => {
       setUser(next);
+      if (next?.uid) setAuthError(null);
       setInitializing(false);
     });
     return () => unsub();
@@ -178,6 +187,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return {
       user,
       initializing,
+      authError,
+      clearAuthError: () => setAuthError(null),
       login: async (email, password) => {
         const auth = getFirebaseAuth();
         if (!auth) throw new Error("missing_auth");
@@ -190,6 +201,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loginWithGoogle: async () => {
         const auth = getFirebaseAuth();
         if (!auth) throw new Error("missing_auth");
+        setAuthError(null);
 
         // Use redirect auth on web to avoid popup/COOP issues on modern browsers.
         if (Platform.OS === "web") {
@@ -234,10 +246,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout: async () => {
         const auth = getFirebaseAuth();
         if (!auth) return;
+        setAuthError(null);
         await signOut(auth);
       },
     };
-  }, [initializing, user]);
+  }, [authError, initializing, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

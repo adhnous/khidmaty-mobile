@@ -13,7 +13,7 @@ function clean(v: unknown): string {
 }
 
 export default function LoginScreen({ navigation }: Props) {
-  const { user, login, loginWithGoogle } = useAuth();
+  const { user, authError, clearAuthError, login, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,6 +38,7 @@ export default function LoginScreen({ navigation }: Props) {
 
   async function onSubmit() {
     setError(null);
+    clearAuthError();
     const em = clean(email);
     const pw = clean(password);
     if (!em || !pw) {
@@ -59,6 +60,7 @@ export default function LoginScreen({ navigation }: Props) {
 
   async function onGoogle() {
     setError(null);
+    clearAuthError();
     setBusy(true);
     try {
       await loginWithGoogle();
@@ -104,7 +106,7 @@ export default function LoginScreen({ navigation }: Props) {
           />
         </View>
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error || authError ? <Text style={styles.error}>{error || authError}</Text> : null}
 
         <Pressable
           onPress={() => void onSubmit()}
