@@ -51,8 +51,9 @@ export default function LoginScreen({ navigation }: Props) {
       await login(em, pw);
       navigation.goBack();
     } catch (err: any) {
+      const code = typeof err?.code === "string" ? err.code : "";
       const msg = typeof err?.message === "string" ? err.message : "Could not login.";
-      setError(msg);
+      setError(code && !msg.includes(code) ? `${msg} (${code})` : msg);
     } finally {
       setBusy(false);
     }
@@ -66,9 +67,13 @@ export default function LoginScreen({ navigation }: Props) {
       await loginWithGoogle();
       navigation.goBack();
     } catch (err: any) {
+      const code = typeof err?.code === "string" ? err.code : "";
       const raw = typeof err?.message === "string" ? err.message : "";
       if (raw === "cancel" || raw === "dismiss") setError("Sign-in cancelled.");
-      else setError(raw || "Could not sign in with Google.");
+      else {
+        const base = raw || "Could not sign in with Google.";
+        setError(code && !base.includes(code) ? `${base} (${code})` : base);
+      }
     } finally {
       setBusy(false);
     }

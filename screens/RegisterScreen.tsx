@@ -58,8 +58,9 @@ export default function RegisterScreen({ navigation }: Props) {
       await register(em, pw, phoneNormalized);
       navigation.goBack();
     } catch (err: any) {
+      const code = typeof err?.code === "string" ? err.code : "";
       const msg = typeof err?.message === "string" ? err.message : "Could not register.";
-      setError(msg);
+      setError(code && !msg.includes(code) ? `${msg} (${code})` : msg);
     } finally {
       setBusy(false);
     }
