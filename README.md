@@ -39,7 +39,7 @@ For standalone builds, also set:
 
 This app supports **Continue with Google**:
 
-- Web: uses Firebase popup auth.
+- Web: uses Firebase redirect auth.
 - iOS/Android: uses Expo AuthSession + Firebase `signInWithCredential`.
 
 Set in `.env`:
@@ -47,6 +47,10 @@ Set in `.env`:
 
 In Google Cloud Console, add this **Authorized redirect URI** to that client:
 - `https://auth.expo.io/@<EXPO_OWNER>/<EXPO_SLUG>`
+
+In Firebase Console:
+- Authentication -> Sign-in method -> enable **Google** and **Email/Password**.
+- Authentication -> Settings -> Authorized domains -> add your web host (e.g. `app.khidmaty.ly`).
 
 ### Deploy (Rules)
 

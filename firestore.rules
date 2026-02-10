@@ -19,7 +19,9 @@ service cloud.firestore {
       allow list: if false;
 
       function emailMatchesAuth() {
-        return request.auth.token.email is string && request.resource.data.email == request.auth.token.email;
+        return request.auth.token.email is string
+          && request.resource.data.email is string
+          && request.resource.data.email.lower() == request.auth.token.email.lower();
       }
 
       function displayNameValid() {

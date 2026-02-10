@@ -21,6 +21,14 @@ export default function RegisterScreen({ navigation }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function leaveAuthScreen() {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate("Search");
+  }
+
   useEffect(() => {
     let alive = true;
     void getAuthLastEmail()
@@ -56,7 +64,7 @@ export default function RegisterScreen({ navigation }: Props) {
     setBusy(true);
     try {
       await register(em, pw, phoneNormalized);
-      navigation.goBack();
+      leaveAuthScreen();
     } catch (err: any) {
       const code = typeof err?.code === "string" ? err.code : "";
       const msg = typeof err?.message === "string" ? err.message : "Could not register.";
