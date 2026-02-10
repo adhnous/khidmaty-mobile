@@ -6,10 +6,10 @@ import { RootNavigator } from "./navigation/RootNavigator";
 import { ChatProvider } from "./lib/chat";
 import { AuthProvider } from "./lib/auth";
 
-WebBrowser.maybeCompleteAuthSession();
-
 // Avoid importing `expo-notifications` on web to prevent noisy warnings and unnecessary code.
 if (Platform.OS !== "web") {
+  WebBrowser.maybeCompleteAuthSession();
+
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const Notifications = require("expo-notifications") as typeof import("expo-notifications");
   Notifications.setNotificationHandler({
