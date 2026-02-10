@@ -18,7 +18,12 @@ function normalizeBaseUrl(url: string): string {
   // Browsers treat cross-origin redirects as CORS-sensitive.
   try {
     const u = new URL(v);
-    if (u.hostname === "khidmaty.ly") u.hostname = "www.khidmaty.ly";
+    // All SOS API routes live under www.khidmaty.ly.
+    // Some environments accidentally set EXPO_PUBLIC_API_BASE_URL to app.khidmaty.ly
+    // (static frontend host), which has no /api/sos routes and returns 404.
+    if (u.hostname === "khidmaty.ly" || u.hostname === "app.khidmaty.ly") {
+      u.hostname = "www.khidmaty.ly";
+    }
     v = u.toString().replace(/\/+$/, "");
   } catch {
     // ignore parse errors; keep the original string

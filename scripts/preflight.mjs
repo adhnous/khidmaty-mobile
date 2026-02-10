@@ -40,6 +40,15 @@ function isLoopbackUrl(url) {
   }
 }
 
+function isAppFrontendHost(url) {
+  try {
+    const u = new URL(String(url || ""));
+    return u.hostname === "app.khidmaty.ly";
+  } catch {
+    return false;
+  }
+}
+
 function main() {
   const projectRoot = process.cwd();
   const envPath = path.join(projectRoot, ".env");
@@ -86,6 +95,9 @@ function main() {
   }
   if (n8nBase && isLoopbackUrl(n8nBase)) {
     warnings.push("EXPO_PUBLIC_N8N_BASE_URL points to localhost. This will not work on a real phone; use your laptop LAN IP or a public n8n URL.");
+  }
+  if (apiBase && isAppFrontendHost(apiBase)) {
+    warnings.push("EXPO_PUBLIC_API_BASE_URL points to app.khidmaty.ly (frontend host). Use https://www.khidmaty.ly for SOS API routes.");
   }
 
   console.log("");

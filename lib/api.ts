@@ -112,11 +112,26 @@ async function fetchJson<T>(
       body,
       signal: controller.signal,
     });
-    const json = (await res.json().catch(() => null)) as any;
+    const rawText = await res.text().catch(() => "");
+    let json: any = null;
+    if (rawText) {
+      try {
+        json = JSON.parse(rawText);
+      } catch {
+        json = null;
+      }
+    }
     if (!res.ok) {
-      const err = new Error(typeof json?.error === "string" ? json.error : res.statusText || "request_failed");
+      const textMessage = cleanString(rawText);
+      const errorMessage =
+        cleanString(json?.error) ||
+        cleanString(json?.message) ||
+        textMessage ||
+        res.statusText ||
+        "request_failed";
+      const err = new Error(errorMessage);
       (err as any).status = res.status;
-      (err as any).detail = typeof json?.detail === "string" ? json.detail : undefined;
+      (err as any).detail = cleanString(json?.detail) || textMessage;
       throw err;
     }
     return json as T;
