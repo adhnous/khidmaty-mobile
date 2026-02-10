@@ -92,7 +92,34 @@ function getFirebaseOptions(): FirebaseOptions | null {
 }
 
 function getFirebaseClientAuth(app: FirebaseApp): Auth {
-  if (Platform.OS === "web") return FirebaseAuth.getAuth(app);
+  const alreadyInitializedMessage = "already-initialized";
+
+  if (Platform.OS === "web") {
+    const anyAuth = FirebaseAuth as any;
+    const initializeAuth = typeof anyAuth.initializeAuth === "function" ? anyAuth.initializeAuth : null;
+    const popupRedirectResolver = anyAuth.browserPopupRedirectResolver;
+    const persistences = [
+      anyAuth.indexedDBLocalPersistence,
+      anyAuth.browserLocalPersistence,
+      anyAuth.browserSessionPersistence,
+    ].filter(Boolean);
+
+    if (!initializeAuth || persistences.length === 0) return FirebaseAuth.getAuth(app);
+
+    try {
+      // Explicitly configure web persistence order.
+      // This helps keep sessions stable across reloads on browsers with partial storage support.
+      const initOptions: Record<string, unknown> = { persistence: persistences };
+      // Keep redirect/popup auth support when using initializeAuth() manually.
+      if (popupRedirectResolver) initOptions.popupRedirectResolver = popupRedirectResolver;
+      return initializeAuth(app, initOptions);
+    } catch (e) {
+      const msg = cleanString((e as any)?.message);
+      if (msg.includes(alreadyInitializedMessage)) return FirebaseAuth.getAuth(app);
+      console.warn("Firebase Auth web init failed; falling back to getAuth().", msg || e);
+      return FirebaseAuth.getAuth(app);
+    }
+  }
 
   const anyAuth = FirebaseAuth as any;
   const getReactNativePersistence =
@@ -110,7 +137,7 @@ function getFirebaseClientAuth(app: FirebaseApp): Auth {
     const msg = cleanString((e as any)?.message);
 
     // Can happen during fast refresh / repeated initialization attempts.
-    if (msg.includes("already-initialized")) return FirebaseAuth.getAuth(app);
+    if (msg.includes(alreadyInitializedMessage)) return FirebaseAuth.getAuth(app);
 
     // This usually means Metro bundled multiple copies of @firebase/app.
     if (msg.includes("Component auth has not been registered yet")) {
@@ -132,8 +159,8 @@ export function getFirebaseClient(): FirebaseClient | null {
   const app = getApps().length ? getApp() : initializeApp(opts);
   const db = getFirestore(app);
 
-  // React Native needs explicit persistence setup.
-  // On web we can rely on the default Auth initialization.
+  // React Native needs explicit AsyncStorage persistence.
+  // On web we initialize Auth with persistence + redirect resolver support.
   const auth = getFirebaseClientAuth(app);
   const functions = getFunctions(app);
 
