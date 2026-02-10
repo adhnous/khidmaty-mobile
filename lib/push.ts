@@ -116,6 +116,37 @@ function isFcmRegistrationsAuthError(err: any): boolean {
   return hay.includes("missing required authentication credential") || hay.includes("unauthenticated");
 }
 
+function isTokenUnsubscribeRecoverableError(err: any): boolean {
+  const code = cleanString(err?.code).toLowerCase();
+  const msg = cleanString(err?.message).toLowerCase();
+  const serverResponse = cleanString(err?.customData?.serverResponse).toLowerCase();
+  const hay = `${msg} ${serverResponse}`;
+  return code.includes("token-unsubscribe-failed") || hay.includes("unsubscribing the user from fcm");
+}
+
+function deleteIndexedDbDatabase(name: string): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      if (typeof indexedDB === "undefined") return resolve();
+      const req = indexedDB.deleteDatabase(name);
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+      req.onblocked = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+async function clearFirebaseWebStateCaches() {
+  await Promise.allSettled([
+    deleteIndexedDbDatabase("firebase-messaging-database"),
+    deleteIndexedDbDatabase("firebase-installations-database"),
+    deleteIndexedDbDatabase("fcm_token_details_db"),
+    deleteIndexedDbDatabase("fcm_vapid_details_db"),
+  ]);
+}
+
 async function repairWebPushState(input: { app: any; messaging: any; swReg: any }) {
   // Best-effort cleanup. This targets the most common cause of the confusing
   // fcmregistrations 401: a corrupted/blocked Firebase Installation state in the browser.
@@ -133,12 +164,9 @@ async function repairWebPushState(input: { app: any; messaging: any; swReg: any 
     // ignore
   }
 
-  try {
-    const mod = await import("firebase/messaging");
-    await mod.deleteToken(input.messaging);
-  } catch {
-    // ignore
-  }
+  // Avoid calling deleteToken() here; stale server tokens can trigger noisy 400s.
+  // Clearing local IndexedDB caches is enough for a clean re-register attempt.
+  await clearFirebaseWebStateCaches();
 }
 
 let webOnMessageAttached = false;
@@ -339,11 +367,14 @@ async function registerWebForPush(uid: string): Promise<{ webPushToken?: string 
     try {
       token = await getTokenOnce();
     } catch (err: any) {
-      if (!isFcmRegistrationsAuthError(err)) throw err;
+      const recoverableAuth = isFcmRegistrationsAuthError(err);
+      const recoverableUnsubscribe = isTokenUnsubscribeRecoverableError(err);
+      if (!recoverableAuth && !recoverableUnsubscribe) throw err;
 
       // If fcmregistrations rejects the request with a 401, try resetting the local
       // Firebase Installation + push subscription state and retry once.
-      console.warn("[push] Web push token: fcmregistrations unauthenticated; repairing and retrying once.", {
+      console.warn("[push] Web push token: repairing local state and retrying once.", {
+        reason: recoverableAuth ? "fcmregistrations_unauthenticated" : "token_unsubscribe_failed",
         code: cleanString(err?.code),
         msg: cleanString(err?.message),
       });
