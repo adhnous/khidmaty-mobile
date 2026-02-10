@@ -12,7 +12,6 @@ import {
   signInWithCredential,
   signInWithEmailAndPassword,
   signInWithPopup,
-  signInWithRedirect,
   signOut,
 } from "firebase/auth";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
@@ -209,8 +208,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!auth) throw new Error("missing_auth");
         setAuthError(null);
 
-        // On web, try popup first (avoids redirect state edge-cases on some browsers),
-        // then fall back to redirect when popup is blocked by browser settings.
+        // On web, use popup flow.
+        // Redirect fallback caused loop-like behavior on some browsers when callback params were altered.
         if (Platform.OS === "web") {
           const provider = new GoogleAuthProvider();
           provider.setCustomParameters({ prompt: "select_account" });
@@ -221,12 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return;
           } catch (err: any) {
             const code = cleanString(err?.code);
-            // Only fallback to redirect when popup cannot be opened.
-            // If user closed/cancelled popup, preserve that outcome.
-            if (code === "auth/popup-blocked") {
-              await signInWithRedirect(auth, provider);
-              return;
-            }
+            if (code === "auth/popup-blocked") throw new Error("Google popup was blocked. Allow popups for this site and try again.");
             throw err;
           }
         }
