@@ -11,6 +11,7 @@ import {
   onAuthStateChanged,
   signInWithCredential,
   signInWithEmailAndPassword,
+  signInWithPopup,
   signInWithRedirect,
   signOut,
 } from "firebase/auth";
@@ -208,18 +209,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!auth) throw new Error("missing_auth");
         setAuthError(null);
 
-        // Use redirect auth on web to avoid popup/COOP issues on modern browsers.
+        // On web, try popup first (avoids redirect state edge-cases on some browsers),
+        // then fall back to redirect when popup is blocked by browser settings.
         if (Platform.OS === "web") {
           const provider = new GoogleAuthProvider();
-          await signInWithRedirect(auth, provider);
-          return;
+          provider.setCustomParameters({ prompt: "select_account" });
+          try {
+            const userCred = await signInWithPopup(auth, provider);
+            const em = cleanString(userCred.user.email);
+            if (userCred.user.uid && em) await touchUserDoc(userCred.user.uid, { email: em }).catch(() => null);
+            return;
+          } catch (err: any) {
+            const code = cleanString(err?.code);
+            // Only fallback to redirect when popup cannot be opened.
+            // If user closed/cancelled popup, preserve that outcome.
+            if (code === "auth/popup-blocked") {
+              await signInWithRedirect(auth, provider);
+              return;
+            }
+            throw err;
+          }
         }
 
-        const { idToken, accessToken } = await signInWithGoogleViaExpoProxy();
-        const firebaseCred = GoogleAuthProvider.credential(idToken, accessToken);
-        const userCred = await signInWithCredential(auth, firebaseCred);
-        const em = cleanString(userCred.user.email);
-        if (userCred.user.uid && em) await touchUserDoc(userCred.user.uid, { email: em }).catch(() => null);
+        // Native: use Expo auth session.
+        {
+          const { idToken, accessToken } = await signInWithGoogleViaExpoProxy();
+          const firebaseCred = GoogleAuthProvider.credential(idToken, accessToken);
+          const userCred = await signInWithCredential(auth, firebaseCred);
+          const em = cleanString(userCred.user.email);
+          if (userCred.user.uid && em) await touchUserDoc(userCred.user.uid, { email: em }).catch(() => null);
+          return;
+        }
       },
       register: async (email, password, phone) => {
         const auth = getFirebaseAuth();
