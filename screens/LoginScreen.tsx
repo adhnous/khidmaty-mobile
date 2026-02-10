@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { useAuth } from "../lib/auth";
@@ -58,7 +58,6 @@ export default function LoginScreen({ navigation }: Props) {
     setBusy(true);
     try {
       await login(em, pw);
-      leaveAuthScreen();
     } catch (err: any) {
       const code = typeof err?.code === "string" ? err.code : "";
       const msg = typeof err?.message === "string" ? err.message : "Could not login.";
@@ -74,7 +73,6 @@ export default function LoginScreen({ navigation }: Props) {
     setBusy(true);
     try {
       await loginWithGoogle();
-      if (Platform.OS !== "web") leaveAuthScreen();
     } catch (err: any) {
       const code = typeof err?.code === "string" ? err.code : "";
       const raw = typeof err?.message === "string" ? err.message : "";

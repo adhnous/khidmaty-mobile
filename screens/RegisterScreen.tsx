@@ -14,7 +14,7 @@ function clean(v: unknown): string {
 }
 
 export default function RegisterScreen({ navigation }: Props) {
-  const { register } = useAuth();
+  const { user, register } = useAuth();
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -28,6 +28,11 @@ export default function RegisterScreen({ navigation }: Props) {
     }
     navigation.navigate("Search");
   }
+
+  useEffect(() => {
+    if (!user) return;
+    leaveAuthScreen();
+  }, [navigation, user]);
 
   useEffect(() => {
     let alive = true;
@@ -64,7 +69,6 @@ export default function RegisterScreen({ navigation }: Props) {
     setBusy(true);
     try {
       await register(em, pw, phoneNormalized);
-      leaveAuthScreen();
     } catch (err: any) {
       const code = typeof err?.code === "string" ? err.code : "";
       const msg = typeof err?.message === "string" ? err.message : "Could not register.";

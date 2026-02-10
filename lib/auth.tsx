@@ -36,6 +36,10 @@ function cleanString(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+function isIgnorableWebRedirectError(code: string): boolean {
+  return code === "auth/no-auth-event" || code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request";
+}
+
 function getExpoProjectFullName(): string | null {
   const anyConstants = Constants as any;
   const originalFullName = cleanString(anyConstants?.expoConfig?.originalFullName);
@@ -171,6 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const code = cleanString(err?.code);
           const message = cleanString(err?.message);
           console.warn("[auth] getRedirectResult failed", { code, message });
+          if (isIgnorableWebRedirectError(code)) return;
           setAuthError(code ? `${code}${message ? `: ${message}` : ""}` : message || "Google Sign-In failed.");
         });
     }
