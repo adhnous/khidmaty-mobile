@@ -57,7 +57,13 @@ export function RootNavigator() {
     if (Platform.OS !== "web") return;
     try {
       const sp = new URLSearchParams(window.location.search);
-      const raw = sp.get("sosEventId") || sp.get("eventId") || "";
+      // Firebase Auth redirect callbacks use `eventId` in the query string.
+      // Do not consume that param for SOS deep-links or Google login can fail.
+      const looksLikeFirebaseAuthRedirect = sp.has("apiKey") && sp.has("authType") && sp.has("eventId");
+      if (looksLikeFirebaseAuthRedirect) return;
+
+      const isLegacySosIntent = sp.get("intent") === "sos";
+      const raw = sp.get("sosEventId") || (isLegacySosIntent ? sp.get("eventId") : "") || "";
       const eventId = raw.trim();
       if (!eventId) return;
 
@@ -65,7 +71,8 @@ export function RootNavigator() {
       else pendingSosEventIdRef.current = eventId;
 
       sp.delete("sosEventId");
-      sp.delete("eventId");
+      if (isLegacySosIntent) sp.delete("eventId");
+      sp.delete("intent");
       const nextSearch = sp.toString();
       const nextUrl = window.location.pathname + (nextSearch ? `?${nextSearch}` : "") + window.location.hash;
       window.history.replaceState({}, "", nextUrl);
