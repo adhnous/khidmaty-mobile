@@ -8,6 +8,7 @@ const KEYS = {
   sosContacts: "khidmaty:sos:contacts:v1",
   sosLastSentAt: "khidmaty:sos:lastSentAt:v1",
   sosShakeEnabled: "khidmaty:sos:shakeEnabled:v1",
+  preferredLanguage: "khidmaty:preferredLanguage:v1",
 } as const;
 
 function safeJsonParse<T>(raw: string | null): T | null {
@@ -162,5 +163,18 @@ export async function getSosShakeEnabled(): Promise<boolean> {
 
 export async function setSosShakeEnabled(enabled: boolean): Promise<void> {
   await AsyncStorage.setItem(KEYS.sosShakeEnabled, enabled ? "1" : "0");
+}
+
+export type AppLanguage = "en" | "ar";
+
+export async function getPreferredLanguage(): Promise<AppLanguage | null> {
+  const raw = await AsyncStorage.getItem(KEYS.preferredLanguage).catch(() => null);
+  const v = String(raw || "").trim().toLowerCase();
+  if (v === "en" || v === "ar") return v;
+  return null;
+}
+
+export async function setPreferredLanguage(language: AppLanguage): Promise<void> {
+  await AsyncStorage.setItem(KEYS.preferredLanguage, language);
 }
 

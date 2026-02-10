@@ -26,7 +26,7 @@ import { startAlarm, stopAlarm } from "../lib/alarm";
 import { getFirestoreDb } from "../lib/firebase";
 import { registerDeviceForPush } from "../lib/push";
 import { isIOSWeb, isStandalonePWA } from "../lib/pwa";
-import { getSosShakeEnabled, setSosShakeEnabled } from "../lib/storage";
+import { AppLanguage, getPreferredLanguage, getSosShakeEnabled, setPreferredLanguage, setSosShakeEnabled } from "../lib/storage";
 import { theme } from "../lib/theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SOS">;
@@ -39,8 +39,26 @@ function buildMapsUrl(lat: number, lon: number): string {
   return `https://www.google.com/maps?q=${lat},${lon}`;
 }
 
+function detectDefaultLanguage(): AppLanguage {
+  try {
+    const browserLanguage =
+      typeof navigator !== "undefined" && typeof navigator.language === "string" ? navigator.language : "";
+    const intlLocale =
+      typeof Intl !== "undefined" && typeof Intl.DateTimeFormat === "function"
+        ? Intl.DateTimeFormat().resolvedOptions().locale
+        : "";
+    const locale = String(browserLanguage || intlLocale || "").toLowerCase();
+    return locale.startsWith("ar") ? "ar" : "en";
+  } catch {
+    return "en";
+  }
+}
+
 export default function SosScreen({ navigation }: Props) {
   const { user } = useAuth();
+  const [language, setLanguage] = useState<AppLanguage>("en");
+  const isArabic = language === "ar";
+  const t = (en: string, ar: string) => (isArabic ? ar : en);
 
   const [message, setMessage] = useState("SOS: I need urgent help.");
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
@@ -68,6 +86,22 @@ export default function SosScreen({ navigation }: Props) {
   const mapsUrl = useMemo(() => (coords ? buildMapsUrl(coords.lat, coords.lon) : ""), [coords]);
 
   useEffect(() => {
+    let alive = true;
+    void getPreferredLanguage()
+      .then((stored) => {
+        if (!alive) return;
+        setLanguage(stored || detectDefaultLanguage());
+      })
+      .catch(() => {
+        if (!alive) return;
+        setLanguage(detectDefaultLanguage());
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!shakeSupported) return;
     void getSosShakeEnabled()
       .then((v) => setShakeEnabled(!!v))
@@ -91,7 +125,7 @@ export default function SosScreen({ navigation }: Props) {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== Location.PermissionStatus.GRANTED) {
-        setLocError("Location permission is required to send an SOS with GPS.");
+        setLocError(t("Location permission is required to send an SOS with GPS.", "مطلوب إذن الموقع لإرسال نداء استغاثة مع إحداثيات GPS."));
         setCoords(null);
         return null;
       }
@@ -102,7 +136,7 @@ export default function SosScreen({ navigation }: Props) {
       setCoords(next);
       return next;
     } catch {
-      setLocError("Could not get location. Try again.");
+      setLocError(t("Could not get location. Try again.", "تعذر الحصول على الموقع. حاول مرة أخرى."));
       setCoords(null);
       return null;
     }
@@ -118,11 +152,11 @@ export default function SosScreen({ navigation }: Props) {
 
     const msg = cleanString(message);
     if (!msg) {
-      setSendError("Message is empty.");
+      setSendError(t("Message is empty.", "الرسالة فارغة."));
       return;
     }
     if (msg.length > 500) {
-      setSendError("Message must be <= 500 characters.");
+      setSendError(t("Message must be <= 500 characters.", "يجب أن تكون الرسالة 500 حرف أو أقل."));
       return;
     }
 
@@ -131,7 +165,7 @@ export default function SosScreen({ navigation }: Props) {
       let c = coords;
       if (!c) c = await refreshLocation();
       if (!c) {
-        setSendError("No GPS location yet. Tap Use Location and try again.");
+        setSendError(t("No GPS location yet. Tap Use Location and try again.", "لا توجد إحداثيات GPS حتى الآن. اضغط استخدام الموقع ثم حاول مرة أخرى."));
         return;
       }
 
@@ -161,19 +195,31 @@ export default function SosScreen({ navigation }: Props) {
       const sent = Number(res?.sent ?? 0) || 0;
 
       if (recipients <= 0) {
-        Alert.alert("No trusted contacts", "You have no accepted trusted contacts yet. Add a contact and wait for them to accept.");
+        Alert.alert(
+          t("No trusted contacts", "لا توجد جهات موثوقة"),
+          t(
+            "You have no accepted trusted contacts yet. Add a contact and wait for them to accept.",
+            "ليس لديك جهات اتصال موثوقة مقبولة بعد. أضف جهة اتصال وانتظر قبولها.",
+          ),
+        );
       } else if (tokens <= 0) {
         Alert.alert(
-          "No devices to notify",
-          "Your trusted contact accepted, but they haven't enabled notifications yet. Ask them to log in and allow notifications on their phone/browser, then try again.",
+          t("No devices to notify", "لا توجد أجهزة للإشعار"),
+          t(
+            "Your trusted contact accepted, but they haven't enabled notifications yet. Ask them to log in and allow notifications on their phone/browser, then try again.",
+            "جهة الاتصال الموثوقة قبلت الطلب، لكنها لم تُفعّل الإشعارات بعد. اطلب منهم تسجيل الدخول والسماح بالإشعارات على الهاتف/المتصفح ثم حاول مرة أخرى.",
+          ),
         );
       } else {
-        Alert.alert("SOS sent", `Notified ${sent} trusted contact device(s).`);
+        Alert.alert(
+          t("SOS sent", "تم إرسال الاستغاثة"),
+          isArabic ? `تم إشعار ${sent} جهازًا لجهات الاتصال الموثوقة.` : `Notified ${sent} trusted contact device(s).`,
+        );
       }
     } catch (err: any) {
       const detail = typeof err?.detail === "string" ? err.detail.trim() : "";
-      const msg = detail || (typeof err?.message === "string" ? err.message : "Could not send SOS.");
-      setSendError(msg || "Could not send SOS.");
+      const msg = detail || (typeof err?.message === "string" ? err.message : t("Could not send SOS.", "تعذر إرسال الاستغاثة."));
+      setSendError(msg || t("Could not send SOS.", "تعذر إرسال الاستغاثة."));
     } finally {
       setSending(false);
     }
@@ -239,7 +285,7 @@ export default function SosScreen({ navigation }: Props) {
       await startAlarm({ vibration: true });
       setAlarmModalOpen(true);
     } catch {
-      Alert.alert("Alarm", "Could not start the alarm on this device.");
+      Alert.alert(t("Alarm", "الإنذار"), t("Could not start the alarm on this device.", "تعذر تشغيل الإنذار على هذا الجهاز."));
     } finally {
       setAlarmStarting(false);
     }
@@ -258,6 +304,12 @@ export default function SosScreen({ navigation }: Props) {
     void setSosShakeEnabled(next).catch(() => null);
   }
 
+  async function changeLanguage(next: AppLanguage) {
+    if (next === language) return;
+    setLanguage(next);
+    void setPreferredLanguage(next).catch(() => null);
+  }
+
   async function enableSosAlerts() {
     setPushError(null);
 
@@ -269,8 +321,11 @@ export default function SosScreen({ navigation }: Props) {
     if (Platform.OS === "web") {
       if (iosWeb && !standalonePwa) {
         Alert.alert(
-          "Install to Home Screen",
-          "On iPhone (iOS 16.4+), SOS notifications work only when the app is installed to the Home Screen (PWA / standalone).\n\nSteps:\n1) Open this site in Safari\n2) Tap Share\n3) Add to Home Screen\n4) Open the app from the icon\n\nThen come back and tap Enable SOS Alerts.",
+          t("Install to Home Screen", "التثبيت على الشاشة الرئيسية"),
+          t(
+            "On iPhone (iOS 16.4+), SOS notifications work only when the app is installed to the Home Screen (PWA / standalone).\n\nSteps:\n1) Open this site in Safari\n2) Tap Share\n3) Add to Home Screen\n4) Open the app from the icon\n\nThen come back and tap Enable SOS Alerts.",
+            "على iPhone (iOS 16.4+)، تعمل إشعارات SOS فقط عند تثبيت التطبيق على الشاشة الرئيسية (PWA / standalone).\n\nالخطوات:\n1) افتح الموقع في Safari\n2) اضغط مشاركة\n3) إضافة إلى الشاشة الرئيسية\n4) افتح التطبيق من الأيقونة\n\nثم ارجع واضغط تفعيل تنبيهات SOS.",
+          ),
         );
         return;
       }
@@ -278,8 +333,8 @@ export default function SosScreen({ navigation }: Props) {
       try {
         if (typeof Notification !== "undefined" && Notification.permission === "denied") {
           Alert.alert(
-            "Notifications blocked",
-            "Notifications are blocked for this site. Enable them in your browser settings, then try again.",
+            t("Notifications blocked", "الإشعارات محظورة"),
+            t("Notifications are blocked for this site. Enable them in your browser settings, then try again.", "الإشعارات محظورة لهذا الموقع. فعّلها من إعدادات المتصفح ثم حاول مرة أخرى."),
           );
           return;
         }
@@ -293,18 +348,18 @@ export default function SosScreen({ navigation }: Props) {
       const res = await registerDeviceForPush(user.uid);
       const ok = !!(res?.expoPushToken || res?.webPushToken);
       if (ok) {
-        Alert.alert("SOS Alerts enabled", "This device can now receive trusted SOS notifications.");
+        Alert.alert(t("SOS Alerts enabled", "تم تفعيل تنبيهات SOS"), t("This device can now receive trusted SOS notifications.", "يمكن لهذا الجهاز الآن استقبال تنبيهات SOS الموثوقة."));
       } else {
         Alert.alert(
-          "Could not enable alerts",
+          t("Could not enable alerts", "تعذر تفعيل التنبيهات"),
           Platform.OS === "web"
-            ? "This browser doesn't support web push notifications, or permission was not granted."
-            : "Notification permission was not granted.",
+            ? t("This browser doesn't support web push notifications, or permission was not granted.", "هذا المتصفح لا يدعم إشعارات الويب أو لم يتم منح الإذن.")
+            : t("Notification permission was not granted.", "لم يتم منح إذن الإشعارات."),
         );
       }
     } catch (err: any) {
       const msg = typeof err?.message === "string" ? err.message.trim() : "";
-      setPushError(msg || "Could not enable SOS alerts. Try again.");
+      setPushError(msg || t("Could not enable SOS alerts. Try again.", "تعذر تفعيل تنبيهات SOS. حاول مرة أخرى."));
     } finally {
       setPushBusy(false);
     }
@@ -313,57 +368,80 @@ export default function SosScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.langRow}>
+          <Pressable
+            onPress={() => void changeLanguage("en")}
+            style={({ pressed }) => [
+              styles.langBtn,
+              language === "en" && styles.langBtnActive,
+              pressed && styles.langBtnPressed,
+            ]}
+          >
+            <Text style={[styles.langBtnText, language === "en" && styles.langBtnTextActive]}>English</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => void changeLanguage("ar")}
+            style={({ pressed }) => [
+              styles.langBtn,
+              language === "ar" && styles.langBtnActive,
+              pressed && styles.langBtnPressed,
+            ]}
+          >
+            <Text style={[styles.langBtnText, language === "ar" && styles.langBtnTextActive]}>العربية</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.hero}>
-          <Text style={styles.heroTitle}>Trusted SOS</Text>
-          <Text style={styles.heroSub}>Only accepted trusted contacts receive alerts.</Text>
+          <Text style={styles.heroTitle}>{t("Trusted SOS", "استغاثة موثوقة")}</Text>
+          <Text style={styles.heroSub}>{t("Only accepted trusted contacts receive alerts.", "فقط جهات الاتصال الموثوقة المقبولة تستقبل التنبيهات.")}</Text>
         </View>
 
         {!user?.uid ? (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Login required</Text>
-            <Text style={styles.hintText}>Create an account to send/receive trusted SOS alerts.</Text>
+            <Text style={styles.cardTitle}>{t("Login required", "تسجيل الدخول مطلوب")}</Text>
+            <Text style={styles.hintText}>{t("Create an account to send/receive trusted SOS alerts.", "أنشئ حسابًا لإرسال/استقبال تنبيهات SOS الموثوقة.")}</Text>
             <View style={styles.row}>
               <Pressable
                 onPress={() => navigation.navigate("Login")}
                 style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed, { flex: 1 }]}
               >
-                <Text style={styles.primaryBtnText}>Login</Text>
+                <Text style={styles.primaryBtnText}>{t("Login", "تسجيل الدخول")}</Text>
               </Pressable>
               <Pressable
                 onPress={() => navigation.navigate("Register")}
                 style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed, { flex: 1 }]}
               >
-                <Text style={styles.secondaryBtnText}>Register</Text>
+                <Text style={styles.secondaryBtnText}>{t("Register", "إنشاء حساب")}</Text>
               </Pressable>
             </View>
           </View>
         ) : (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Trusted contacts</Text>
-            <Text style={styles.hintText}>Add contacts and wait for them to accept.</Text>
+            <Text style={styles.cardTitle}>{t("Trusted contacts", "جهات الاتصال الموثوقة")}</Text>
+            <Text style={styles.hintText}>{t("Add contacts and wait for them to accept.", "أضف جهات اتصال وانتظر قبولهم.")}</Text>
             <View style={styles.row}>
               <Pressable
                 onPress={() => navigation.navigate("TrustedContacts")}
                 style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed, { flex: 1 }]}
               >
-                <Text style={styles.secondaryBtnText}>Manage</Text>
+                <Text style={styles.secondaryBtnText}>{t("Manage", "إدارة")}</Text>
               </Pressable>
               <Pressable
                 onPress={() => navigation.navigate("IncomingRequests")}
                 style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed, { flex: 1 }]}
               >
-                <Text style={styles.secondaryBtnText}>Requests</Text>
+                <Text style={styles.secondaryBtnText}>{t("Requests", "الطلبات")}</Text>
               </Pressable>
             </View>
           </View>
         )}
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>SOS alerts</Text>
-          <Text style={styles.hintText}>Enable notifications on this device to receive trusted SOS alerts.</Text>
+          <Text style={styles.cardTitle}>{t("SOS alerts", "تنبيهات SOS")}</Text>
+          <Text style={styles.hintText}>{t("Enable notifications on this device to receive trusted SOS alerts.", "فعّل الإشعارات على هذا الجهاز لاستقبال تنبيهات SOS الموثوقة.")}</Text>
 
           {Platform.OS === "web" && iosWeb && !standalonePwa ? (
-            <Text style={styles.errorText}>On iPhone, install to Home Screen (PWA) to enable SOS alerts.</Text>
+            <Text style={styles.errorText}>{t("On iPhone, install to Home Screen (PWA) to enable SOS alerts.", "على iPhone، ثبّت التطبيق على الشاشة الرئيسية (PWA) لتفعيل تنبيهات SOS.")}</Text>
           ) : null}
 
           <Pressable
@@ -376,22 +454,26 @@ export default function SosScreen({ navigation }: Props) {
             ]}
           >
             {pushBusy ? <ActivityIndicator color="#fff" /> : null}
-            <Text style={styles.primaryBtnText}>{pushBusy ? "Enabling..." : "Enable SOS Alerts"}</Text>
+            <Text style={styles.primaryBtnText}>{pushBusy ? t("Enabling...", "جارٍ التفعيل...") : t("Enable SOS Alerts", "تفعيل تنبيهات SOS")}</Text>
           </Pressable>
           {pushError ? <Text style={styles.errorText}>{pushError}</Text> : null}
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Location</Text>
+          <Text style={styles.cardTitle}>{t("Location", "الموقع")}</Text>
           <Text style={styles.metaText}>
-            {coords ? `Coords: ${coords.lat.toFixed(6)}, ${coords.lon.toFixed(6)}` : "No GPS location yet."}
+            {coords
+              ? isArabic
+                ? `الإحداثيات: ${coords.lat.toFixed(6)}, ${coords.lon.toFixed(6)}`
+                : `Coords: ${coords.lat.toFixed(6)}, ${coords.lon.toFixed(6)}`
+              : t("No GPS location yet.", "لا توجد إحداثيات GPS حتى الآن.")}
           </Text>
           {mapsUrl ? (
             <Pressable
               onPress={() => void Linking.openURL(mapsUrl)}
               style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed]}
             >
-              <Text style={styles.secondaryBtnText}>Open Maps</Text>
+              <Text style={styles.secondaryBtnText}>{t("Open Maps", "فتح الخريطة")}</Text>
             </Pressable>
           ) : null}
           {locError ? <Text style={styles.errorText}>{locError}</Text> : null}
@@ -400,17 +482,17 @@ export default function SosScreen({ navigation }: Props) {
             onPress={() => void refreshLocation()}
             style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}
           >
-            <Text style={styles.primaryBtnText}>Use Location</Text>
+            <Text style={styles.primaryBtnText}>{t("Use Location", "استخدام الموقع")}</Text>
           </Pressable>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Message</Text>
-          <Text style={styles.hintText}>Keep it short. Your GPS coordinates will be attached.</Text>
+          <Text style={styles.cardTitle}>{t("Message", "الرسالة")}</Text>
+          <Text style={styles.hintText}>{t("Keep it short. Your GPS coordinates will be attached.", "اجعلها قصيرة. سيتم إرفاق إحداثيات GPS.")}</Text>
           <TextInput
             value={message}
             onChangeText={setMessage}
-            placeholder="Describe your emergency..."
+            placeholder={t("Describe your emergency...", "صف حالتك الطارئة...")}
             placeholderTextColor="#9CA3AF"
             multiline
             style={[styles.input, styles.inputMulti]}
@@ -418,9 +500,11 @@ export default function SosScreen({ navigation }: Props) {
 
           <View style={styles.shakeRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.shakeTitle}>Shake to send</Text>
+              <Text style={styles.shakeTitle}>{t("Shake to send", "الهز للإرسال")}</Text>
               <Text style={styles.hintText}>
-                {shakeSupported ? "Shake your phone twice to send SOS." : "Shake is not available on web."}
+                {shakeSupported
+                  ? t("Shake your phone twice to send SOS.", "اهز هاتفك مرتين لإرسال الاستغاثة.")
+                  : t("Shake is not available on web.", "الهز غير متاح على الويب.")}
               </Text>
             </View>
             <Switch
@@ -442,14 +526,14 @@ export default function SosScreen({ navigation }: Props) {
             ]}
           >
             {sending ? <ActivityIndicator color="#fff" /> : null}
-            <Text style={styles.sosBtnText}>{sending ? "Sending..." : "Send SOS to Trusted Contacts"}</Text>
+            <Text style={styles.sosBtnText}>{sending ? t("Sending...", "جارٍ الإرسال...") : t("Send SOS to Trusted Contacts", "إرسال SOS إلى الجهات الموثوقة")}</Text>
           </Pressable>
           {sendError ? <Text style={styles.errorText}>{sendError}</Text> : null}
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Panic Alarm</Text>
-          <Text style={styles.hintText}>A loud siren + vibration to attract attention. Use only in real emergencies.</Text>
+          <Text style={styles.cardTitle}>{t("Panic Alarm", "إنذار الطوارئ")}</Text>
+          <Text style={styles.hintText}>{t("A loud siren + vibration to attract attention. Use only in real emergencies.", "صفارة عالية + اهتزاز لجذب الانتباه. استخدمها فقط في الطوارئ الحقيقية.")}</Text>
 
           <View style={styles.row}>
             <Pressable
@@ -462,14 +546,14 @@ export default function SosScreen({ navigation }: Props) {
               ]}
             >
               {alarmStarting ? <ActivityIndicator color="#fff" /> : null}
-              <Text style={styles.alarmBtnText}>{alarmStarting ? "Starting..." : "Start Alarm"}</Text>
+              <Text style={styles.alarmBtnText}>{alarmStarting ? t("Starting...", "جارٍ البدء...") : t("Start Alarm", "بدء الإنذار")}</Text>
             </Pressable>
 
             <Pressable
               onPress={() => void stopPanicAlarm()}
               style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed]}
             >
-              <Text style={styles.secondaryBtnText}>Stop</Text>
+              <Text style={styles.secondaryBtnText}>{t("Stop", "إيقاف")}</Text>
             </Pressable>
           </View>
         </View>
@@ -480,12 +564,12 @@ export default function SosScreen({ navigation }: Props) {
       <Modal visible={alarmModalOpen} transparent animationType="fade" onRequestClose={() => void stopPanicAlarm()}>
         <View style={styles.alarmOverlay}>
           <View style={styles.alarmCard}>
-            <Text style={styles.alarmTitle}>ALARM ON</Text>
-            <Text style={styles.alarmSubtitle}>If you are safe, press Stop. Otherwise, send SOS.</Text>
+            <Text style={styles.alarmTitle}>{t("ALARM ON", "الإنذار يعمل")}</Text>
+            <Text style={styles.alarmSubtitle}>{t("If you are safe, press Stop. Otherwise, send SOS.", "إذا كنت بأمان اضغط إيقاف، وإلا أرسل SOS.")}</Text>
 
             <View style={styles.row}>
               <Pressable onPress={() => void stopPanicAlarm()} style={({ pressed }) => [styles.sosBtn, pressed && styles.sosBtnPressed]}>
-                <Text style={styles.sosBtnText}>STOP ALARM</Text>
+                <Text style={styles.sosBtnText}>{t("STOP ALARM", "إيقاف الإنذار")}</Text>
               </Pressable>
             </View>
           </View>
@@ -498,6 +582,22 @@ export default function SosScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.colors.bg },
   content: { padding: 14, gap: 12 },
+  langRow: { flexDirection: "row", gap: 8, justifyContent: "flex-end" },
+  langBtn: {
+    minWidth: 92,
+    height: 36,
+    borderRadius: theme.radii.md,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F3F4F6",
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  langBtnActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  langBtnPressed: { opacity: 0.92 },
+  langBtnText: { color: theme.colors.text, fontSize: 12, fontWeight: "900" },
+  langBtnTextActive: { color: "#fff" },
   hero: {
     padding: 14,
     borderRadius: theme.radii.lg,

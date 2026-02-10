@@ -6,6 +6,7 @@ import type { RootStackParamList } from "../navigation/RootNavigator";
 import { useAuth } from "../lib/auth";
 import { startAlarm, stopAlarm } from "../lib/alarm";
 import { getFirestoreDb } from "../lib/firebase";
+import { AppLanguage, getPreferredLanguage } from "../lib/storage";
 import { theme } from "../lib/theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "IncomingSOS">;
@@ -41,9 +42,28 @@ function buildMapsUrl(lat: number, lon: number): string {
   return `https://www.google.com/maps?q=${lat},${lon}`;
 }
 
+function detectDefaultLanguage(): AppLanguage {
+  try {
+    const browserLanguage =
+      typeof navigator !== "undefined" && typeof navigator.language === "string" ? navigator.language : "";
+    const intlLocale =
+      typeof Intl !== "undefined" && typeof Intl.DateTimeFormat === "function"
+        ? Intl.DateTimeFormat().resolvedOptions().locale
+        : "";
+    const locale = String(browserLanguage || intlLocale || "").toLowerCase();
+    return locale.startsWith("ar") ? "ar" : "en";
+  } catch {
+    return "en";
+  }
+}
+
 export default function IncomingSosScreen({ navigation, route }: Props) {
   const { user } = useAuth();
   const eventId = route.params.eventId;
+
+  const [language, setLanguage] = useState<AppLanguage>("en");
+  const isArabic = language === "ar";
+  const t = (en: string, ar: string) => (isArabic ? ar : en);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +75,22 @@ export default function IncomingSosScreen({ navigation, route }: Props) {
   }, [event]);
 
   useEffect(() => {
+    let alive = true;
+    void getPreferredLanguage()
+      .then((stored) => {
+        if (!alive) return;
+        setLanguage(stored || detectDefaultLanguage());
+      })
+      .catch(() => {
+        if (!alive) return;
+        setLanguage(detectDefaultLanguage());
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
     void startAlarm({ vibration: true });
     return () => {
       void stopAlarm();
@@ -64,13 +100,13 @@ export default function IncomingSosScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (!user?.uid) {
       setLoading(false);
-      setError("Login required to view SOS details.");
+      setError(isArabic ? "تسجيل الدخول مطلوب لعرض تفاصيل SOS." : "Login required to view SOS details.");
       return;
     }
     const db = getFirestoreDb();
     if (!db) {
       setLoading(false);
-      setError("Firebase is not configured.");
+      setError(isArabic ? "إعداد Firebase غير مكتمل." : "Firebase is not configured.");
       return;
     }
 
@@ -83,7 +119,7 @@ export default function IncomingSosScreen({ navigation, route }: Props) {
       (snap) => {
         setLoading(false);
         if (!snap.exists()) {
-          setError("SOS not found (or you don't have access).");
+          setError(isArabic ? "لم يتم العثور على SOS (أو لا تملك صلاحية الوصول)." : "SOS not found (or you don't have access).");
           setEvent(null);
           return;
         }
@@ -94,7 +130,7 @@ export default function IncomingSosScreen({ navigation, route }: Props) {
         const lat = cleanNumber(data?.lat);
         const lon = cleanNumber(data?.lon);
         if (!senderUid || !message || lat == null || lon == null) {
-          setError("SOS data is invalid.");
+          setError(isArabic ? "بيانات SOS غير صالحة." : "SOS data is invalid.");
           setEvent(null);
           return;
         }
@@ -103,36 +139,36 @@ export default function IncomingSosScreen({ navigation, route }: Props) {
       },
       () => {
         setLoading(false);
-        setError("Could not load SOS. Check your internet and try again.");
+        setError(isArabic ? "تعذر تحميل SOS. تحقق من الإنترنت ثم حاول مرة أخرى." : "Could not load SOS. Check your internet and try again.");
         setEvent(null);
       },
     );
-  }, [eventId, user?.uid]);
+  }, [eventId, isArabic, user?.uid]);
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.content}>
         <View style={styles.hero}>
-          <Text style={styles.heroTitle}>🚨 SOS Alert</Text>
-          <Text style={styles.heroSub}>Siren + vibration are active until you stop them.</Text>
+          <Text style={styles.heroTitle}>{t("SOS Alert", "تنبيه SOS")}</Text>
+          <Text style={styles.heroSub}>{t("Siren + vibration are active until you stop them.", "الصفارة والاهتزاز يعملان حتى تقوم بإيقافهما.")}</Text>
         </View>
 
         {!user?.uid ? (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Login required</Text>
-            <Text style={styles.metaText}>Sign in to view SOS details.</Text>
+            <Text style={styles.cardTitle}>{t("Login required", "تسجيل الدخول مطلوب")}</Text>
+            <Text style={styles.metaText}>{t("Sign in to view SOS details.", "سجل الدخول لعرض تفاصيل SOS.")}</Text>
             <Pressable
               onPress={() => navigation.navigate("Login")}
               style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}
             >
-              <Text style={styles.primaryBtnText}>Login</Text>
+              <Text style={styles.primaryBtnText}>{t("Login", "تسجيل الدخول")}</Text>
             </Pressable>
           </View>
         ) : loading ? (
           <View style={styles.card}>
             <View style={styles.row}>
               <ActivityIndicator />
-              <Text style={styles.metaText}>Loading SOS…</Text>
+              <Text style={styles.metaText}>{t("Loading SOS...", "جارٍ تحميل SOS...")}</Text>
             </View>
           </View>
         ) : error ? (
@@ -141,11 +177,11 @@ export default function IncomingSosScreen({ navigation, route }: Props) {
           </View>
         ) : event ? (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Message</Text>
+            <Text style={styles.cardTitle}>{t("Message", "الرسالة")}</Text>
             <Text style={styles.messageText}>{event.message}</Text>
 
             <Text style={styles.metaText}>
-              {event.createdAt ? `Created: ${tsLabel(event.createdAt)}` : ""}
+              {event.createdAt ? (isArabic ? `الوقت: ${tsLabel(event.createdAt)}` : `Created: ${tsLabel(event.createdAt)}`) : ""}
             </Text>
 
             <View style={styles.row}>
@@ -153,7 +189,7 @@ export default function IncomingSosScreen({ navigation, route }: Props) {
                 onPress={() => void Linking.openURL(mapsUrl)}
                 style={({ pressed }) => [styles.secondaryBtn, pressed && styles.secondaryBtnPressed, { flex: 1 }]}
               >
-                <Text style={styles.secondaryBtnText}>Open Maps</Text>
+                <Text style={styles.secondaryBtnText}>{t("Open Maps", "فتح الخريطة")}</Text>
               </Pressable>
               <Pressable
                 onPress={() => {
@@ -162,13 +198,13 @@ export default function IncomingSosScreen({ navigation, route }: Props) {
                 }}
                 style={({ pressed }) => [styles.dangerBtn, pressed && styles.dangerBtnPressed, { flex: 1 }]}
               >
-                <Text style={styles.dangerBtnText}>Stop Alarm</Text>
+                <Text style={styles.dangerBtnText}>{t("Stop Alarm", "إيقاف الإنذار")}</Text>
               </Pressable>
             </View>
           </View>
         ) : (
           <View style={styles.card}>
-            <Text style={styles.metaText}>No data.</Text>
+            <Text style={styles.metaText}>{t("No data.", "لا توجد بيانات.")}</Text>
           </View>
         )}
       </View>
@@ -235,4 +271,3 @@ const styles = StyleSheet.create({
   dangerBtnPressed: { opacity: 0.92 },
   dangerBtnText: { fontSize: 13, fontWeight: "900", color: "#fff" },
 });
-
